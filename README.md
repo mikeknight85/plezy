@@ -164,6 +164,7 @@ sudo moss pad plezy
 
 ### <img src="assets/readme_icons/downloads.svg" height="20" alt="" align="center" /> Downloads & Offline
 - Download movies, shows, and music for offline playback[^dl]
+- Smaller downloads of Plex videos at a chosen quality, prepared by the server (Plex Pass, Plex Media Server 1.41.9+)
 - Background queue with pause / resume
 - Sync rules for automatic downloads, with per-show "Include Specials"
 - Offline browsing with watch state sync-back on reconnect

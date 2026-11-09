@@ -4866,8 +4866,8 @@ class Translations$downloads$en {
 	/// en: 'Download Quality'
 	String get selectQuality => 'Download Quality';
 
-	/// en: 'For a smaller copy, the server prepares the video first. Keep Plezy open while it does; the download then continues in the background.'
-	String get preparationBackgroundHint => 'For a smaller copy, the server prepares the video first. Keep Plezy open while it does; the download then continues in the background.';
+	/// en: 'For a smaller copy, keep Plezy open while the server prepares the video. Once it is ready, the download continues in the background.'
+	String get preparationBackgroundHint => 'For a smaller copy, keep Plezy open while the server prepares the video. Once it is ready, the download continues in the background.';
 
 	/// en: 'Preparing video…'
 	String get preparingVideo => 'Preparing video…';
@@ -9958,7 +9958,7 @@ extension on Translations {
 			'downloads.deleteAll' => 'Delete all',
 			'downloads.selectVersion' => 'Select Version',
 			'downloads.selectQuality' => 'Download Quality',
-			'downloads.preparationBackgroundHint' => 'For a smaller copy, the server prepares the video first. Keep Plezy open while it does; the download then continues in the background.',
+			'downloads.preparationBackgroundHint' => 'For a smaller copy, keep Plezy open while the server prepares the video. Once it is ready, the download continues in the background.',
 			'downloads.preparingVideo' => 'Preparing video…',
 			'downloads.preparingVideoProgress' => ({required Object percent}) => 'Preparing video… ${percent}%',
 			'downloads.conversionFailed' => 'The server could not prepare a smaller copy. Try again, or download the original.',

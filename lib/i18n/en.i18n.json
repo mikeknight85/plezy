@@ -2007,7 +2007,7 @@
     "deleteAll": "Delete all",
     "selectVersion": "Select Version",
     "selectQuality": "Download Quality",
-    "preparationBackgroundHint": "For a smaller copy, the server prepares the video first. Keep Plezy open while it does; the download then continues in the background.",
+    "preparationBackgroundHint": "For a smaller copy, keep Plezy open while the server prepares the video. Once it is ready, the download continues in the background.",
     "preparingVideo": "Preparing video…",
     "preparingVideoProgress": "Preparing video… ${percent}%",
     "conversionFailed": "The server could not prepare a smaller copy. Try again, or download the original.",
