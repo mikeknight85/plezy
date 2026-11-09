@@ -3740,6 +3740,128 @@ void main() {
       expect(tasks.single.url, convertedUrl);
     });
 
+    test('the queue never sees a converted download before its quality is recorded', () async {
+      final fixture = await _createSupplementaryFixture();
+      final conversion = _ScriptedConversion(const [DownloadConversionPreparing(state: 'job')]);
+      final client = _ConvertingClient(
+        metadata: fixture.metadata,
+        conversion: conversion,
+        resolution: () => const DownloadResolution(videoUrl: sourceUrl),
+      );
+      final seenAsConverted = <bool>[];
+      final processed = Completer<void>();
+      final manager = DownloadManagerService(
+        database: fixture.db,
+        storageService: fixture.storage,
+        clientResolver: (serverId, {clientScopeId}) => client,
+        downloadsSupportedOverride: true,
+        fileDownloaderInitializerOverride: () async {},
+        queueProcessorOverride: (_) async {
+          final queued = await fixture.db.getNextQueueItem();
+          if (queued != null) {
+            seenAsConverted.add(await fixture.db.getDownloadConversion(queued.mediaGlobalKey) != null);
+          }
+          if (!processed.isCompleted) processed.complete();
+        },
+      );
+      addTearDown(manager.dispose);
+
+      await manager.queueDownload(
+        metadata: fixture.metadata,
+        client: client,
+        quality: TranscodeQualityPreset.p720_2mbps,
+      );
+      await processed.future.timeout(const Duration(seconds: 5));
+
+      expect(seenAsConverted, [isTrue]);
+    });
+
+    test('cancelling while the server sets up the job removes it', () async {
+      final fixture = await _createSupplementaryFixture();
+      final conversion = _GatedConversion();
+      final client = _ConvertingClient(
+        metadata: fixture.metadata,
+        conversion: conversion,
+        resolution: () => const DownloadResolution(videoUrl: sourceUrl),
+      );
+      final tasks = <Task>[];
+      final manager = DownloadManagerService(
+        database: fixture.db,
+        storageService: fixture.storage,
+        clientResolver: (serverId, {clientScopeId}) => client,
+        downloadsSupportedOverride: true,
+        fileDownloaderInitializerOverride: () async {},
+        enqueueTaskOverride: (task) async {
+          tasks.add(task);
+          return true;
+        },
+      );
+      addTearDown(manager.dispose);
+
+      await manager.queueDownload(
+        metadata: fixture.metadata,
+        client: client,
+        quality: TranscodeQualityPreset.p720_2mbps,
+      );
+      await conversion.started.future.timeout(const Duration(seconds: 5));
+      await manager.cancelDownload(fixture.metadata.globalKey);
+      // The server answers after the cancel with a new job.
+      conversion.gate.complete(const DownloadConversionReady(state: 'late-job', url: convertedUrl));
+      await conversion.finished.future.timeout(const Duration(seconds: 5));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(conversion.discarded, ['late-job']);
+      expect((await fixture.db.getDownloadConversion(fixture.metadata.globalKey))?.state, isNull);
+      expect(tasks, isEmpty);
+      expect((await fixture.db.getDownloadedMedia(fixture.metadata.globalKey))?.status, DownloadStatus.cancelled.index);
+    });
+
+    test('pausing while a poll is in flight keeps it paused and keeps the job', () async {
+      final fixture = await _createSupplementaryFixture();
+      final conversion = _GatedConversion();
+      final client = _ConvertingClient(
+        metadata: fixture.metadata,
+        conversion: conversion,
+        resolution: () => const DownloadResolution(videoUrl: sourceUrl),
+      );
+      await fixture.db.requestDownloadConversion(
+        fixture.metadata.globalKey,
+        quality: TranscodeQualityPreset.p720_2mbps,
+        clientScopeId: null,
+      );
+      final tasks = <Task>[];
+      final manager = DownloadManagerService(
+        database: fixture.db,
+        storageService: fixture.storage,
+        clientResolver: (serverId, {clientScopeId}) => client,
+        downloadsSupportedOverride: true,
+        fileDownloaderInitializerOverride: () async {},
+        enqueueTaskOverride: (task) async {
+          tasks.add(task);
+          return true;
+        },
+      );
+      addTearDown(manager.dispose);
+
+      await manager.queueDownload(
+        metadata: fixture.metadata,
+        client: client,
+        quality: TranscodeQualityPreset.p720_2mbps,
+      );
+      await conversion.started.future.timeout(const Duration(seconds: 5));
+      await fixture.db.updateDownloadConversionState(fixture.metadata.globalKey, 'job', quality: 'p720_2mbps');
+      await manager.pauseDownload(fixture.metadata.globalKey);
+      conversion.gate.complete(const DownloadConversionReady(state: 'job', url: convertedUrl));
+      await conversion.finished.future.timeout(const Duration(seconds: 5));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(tasks, isEmpty);
+      expect((await fixture.db.getDownloadedMedia(fixture.metadata.globalKey))?.status, DownloadStatus.paused.index);
+      // The recorded job survives for resume.
+      expect(conversion.discarded, isEmpty);
+      expect((await fixture.db.getDownloadConversion(fixture.metadata.globalKey))?.state, 'job');
+    });
+
     test('a finished download frees the server job but stays a converted copy', () async {
       final fixture = await _createSupplementaryFixture();
       final conversion = _ScriptedConversion(const []);
@@ -4881,4 +5003,33 @@ class _ConvertingClient extends _SupplementaryClient implements DownloadConversi
 
   @override
   DownloadConversion get downloadConversion => _conversion ?? (throw StateError('no conversion'));
+}
+
+class _GatedConversion implements DownloadConversion {
+  final started = Completer<void>();
+  final gate = Completer<DownloadConversionStep>();
+  final finished = Completer<void>();
+  final discarded = <String>[];
+
+  @override
+  String get outputExtension => 'mkv';
+
+  @override
+  Future<DownloadConversionStep> advance(
+    DownloadConversionRequest request, {
+    String? state,
+    required Future<void> Function(String state) persist,
+  }) async {
+    if (!started.isCompleted) started.complete();
+    try {
+      final step = await gate.future;
+      if (step case DownloadConversionReady(:final state)) await persist(state);
+      return step;
+    } finally {
+      if (!finished.isCompleted) finished.complete();
+    }
+  }
+
+  @override
+  Future<void> discard(String state) async => discarded.add(state);
 }

@@ -43,38 +43,65 @@ final class ConversionSuperseded extends ConversionOutcome {
 /// Drives the server-side conversions of downloads that asked for a smaller
 /// copy, so the download manager only asks "is the file ready yet?".
 ///
-/// Downloads without a [DownloadConversions] row never reach this class past
-/// one primary-key lookup.
+/// Every change to one download's conversion runs under a per-download lock,
+/// and [invalidate] makes any step still in flight for it stale: a stale step
+/// never records its job, and removes the job unless it is the one already
+/// recorded. A cancel, delete, pause or new request therefore never leaks a
+/// server-side job or lets an old step overwrite a newer request.
 class DownloadConversionCoordinator {
   DownloadConversionCoordinator(this._database, {this._pollDelay = const Duration(seconds: 5)});
 
   final AppDatabase _database;
   final Duration _pollDelay;
   final Map<String, Timer> _polls = {};
+  final Map<String, int> _generations = {};
+  final Map<String, Future<void>> _locks = {};
   bool _disposed = false;
 
   /// Downloads waiting for their next poll. The queue skips them meanwhile.
   Set<String> get waitingKeys => _polls.keys.toSet();
 
-  /// Records the quality requested for a newly admitted download, replacing
-  /// and discarding any earlier conversion. Original removes the row.
-  Future<void> request(
+  /// Makes every step in flight for [globalKey] stale and stops its polling.
+  /// The recorded job is kept, so a paused download can continue it later.
+  void invalidate(String globalKey) {
+    cancelPoll(globalKey);
+    _generations.update(globalKey, (generation) => generation + 1, ifAbsent: () => 1);
+  }
+
+  /// Admits a download through [insert] and records [quality] for it in the
+  /// same transaction, so the queue can never pick up the row before its
+  /// quality is known. The previous request's job, if any, is discarded.
+  /// [admitted] says whether [insert]'s result replaced the download.
+  Future<T> admit<T>(
     String globalKey,
     TranscodeQualityPreset quality, {
     required MediaServerClient client,
     required String? clientScopeId,
-  }) async {
-    cancelPoll(globalKey);
-    final previous = await _database.getDownloadConversion(globalKey);
-    if (previous == null && quality.isOriginal) return;
-    if (previous?.state case final state?) await _discardState(state, client);
+    required Future<T> Function() insert,
+    required bool Function(T result) admitted,
+  }) {
     // Only a client that offers conversion right now may start one, so a
     // stale or crafted quality never reaches a server without the feature.
-    if (quality.isOriginal || !offersDownloadConversion(client)) {
-      await _database.deleteDownloadConversion(globalKey);
-      return;
-    }
-    await _database.requestDownloadConversion(globalKey, quality: quality, clientScopeId: clientScopeId);
+    final convert = !quality.isOriginal && offersDownloadConversion(client);
+    invalidate(globalKey);
+    return _locked(globalKey, () async {
+      DownloadConversionRow? previous;
+      late T result;
+      await _database.transaction(() async {
+        previous = await _database.getDownloadConversion(globalKey);
+        result = await insert();
+        if (!admitted(result)) return;
+        if (convert) {
+          await _database.requestDownloadConversion(globalKey, quality: quality, clientScopeId: clientScopeId);
+        } else if (previous != null) {
+          await _database.deleteDownloadConversion(globalKey);
+        }
+      });
+      if (admitted(result)) {
+        if (previous?.state case final state?) await _discardState(state, client);
+      }
+      return result;
+    });
   }
 
   /// Whether [globalKey] downloads a converted copy.
@@ -91,6 +118,9 @@ class DownloadConversionCoordinator {
   }) async {
     final globalKey = row.globalKey;
     cancelPoll(globalKey);
+    final generation = _generations[globalKey] ?? 0;
+    bool current() => !_disposed && (_generations[globalKey] ?? 0) == generation;
+
     var conversion = await _database.getDownloadConversion(globalKey);
     if (conversion == null) return null;
     final quality = TranscodeQualityPreset.values.asNameMap()[conversion.quality];
@@ -102,62 +132,88 @@ class DownloadConversionCoordinator {
     if (conversion.clientScopeId != clientScopeId) {
       // A job belongs to the account that created it; another account
       // cannot poll or remove it, so this one starts over.
-      await _database.requestDownloadConversion(globalKey, quality: quality, clientScopeId: clientScopeId);
+      final restarted = await _locked(globalKey, () async {
+        if (!current()) return false;
+        await _database.requestDownloadConversion(globalKey, quality: quality, clientScopeId: clientScopeId);
+        return true;
+      });
+      if (!restarted) return const ConversionSuperseded();
       conversion = await _database.getDownloadConversion(globalKey);
       if (conversion == null) return const ConversionSuperseded();
     }
 
-    var superseded = false;
-    Future<void> persist(String state) async {
-      if (await _database.updateDownloadConversionState(globalKey, state, quality: quality.name)) return;
-      superseded = true;
-      await service.discard(state);
-    }
+    Future<void> persist(String state) => _locked(globalKey, () async {
+      if (current()) {
+        await _database.updateDownloadConversionState(globalKey, state, quality: quality.name);
+        return;
+      }
+      // Stale: never record this job, and remove it unless it is the job
+      // the row already holds (a paused download keeps that one).
+      final recorded = (await _database.getDownloadConversion(globalKey))?.state;
+      if (recorded != state) await _discardState(state, client);
+      throw const _StaleConversionStep();
+    });
 
-    final step = await service.advance(
-      DownloadConversionRequest(
-        itemId: row.ratingKey,
-        mediaIndex: row.mediaIndex,
-        mediaSourceId: row.mediaSourceId,
-        quality: quality,
-      ),
-      state: conversion.state,
-      persist: persist,
-    );
-    switch (step) {
-      case DownloadConversionPreparing(:final state, :final progress):
-        await persist(state);
-        if (superseded) return const ConversionSuperseded();
-        _schedulePoll(globalKey, onPollDue);
-        return ConversionWaiting(progress == null ? null : (progress.clamp(0.0, 1.0) * 100).round());
-      case DownloadConversionReady(:final state, :final url):
-        await persist(state);
-        if (superseded) return const ConversionSuperseded();
-        return ConversionReady(url: url, extension: service.outputExtension);
-      case DownloadConversionFailed(:final message):
-        if (!await _database.updateDownloadConversionState(globalKey, null, quality: quality.name)) {
-          return const ConversionSuperseded();
-        }
-        return ConversionFailedOutcome(message);
+    try {
+      final step = await service.advance(
+        DownloadConversionRequest(
+          itemId: row.ratingKey,
+          mediaIndex: row.mediaIndex,
+          mediaSourceId: row.mediaSourceId,
+          quality: quality,
+        ),
+        state: conversion.state,
+        persist: persist,
+      );
+      switch (step) {
+        case DownloadConversionPreparing(:final state, :final progress):
+          await persist(state);
+          _schedulePoll(globalKey, onPollDue);
+          return ConversionWaiting(progress == null ? null : (progress.clamp(0.0, 1.0) * 100).round());
+        case DownloadConversionReady(:final state, :final url):
+          await persist(state);
+          return ConversionReady(url: url, extension: service.outputExtension);
+        case DownloadConversionFailed(:final message):
+          final recorded = await _locked(globalKey, () async {
+            if (!current()) return false;
+            await _database.updateDownloadConversionState(globalKey, null, quality: quality.name);
+            return true;
+          });
+          return recorded ? ConversionFailedOutcome(message) : const ConversionSuperseded();
+      }
+    } on _StaleConversionStep {
+      return const ConversionSuperseded();
     }
   }
 
   /// Discards the server-side job of a download that is stored, cancelled or
-  /// deleted. The row stays with the download, so playback and retries still
-  /// know it is a converted copy. [clientFor] is only called when there is a
-  /// job to discard.
+  /// deleted, and makes steps in flight for it stale. The row stays with the
+  /// download, so playback and retries still know it is a converted copy.
+  /// [clientFor] is only called when there is a job to discard.
   Future<void> discard(String globalKey, Future<MediaServerClient?> Function() clientFor) {
-    cancelPoll(globalKey);
-    return _release(globalKey, clientFor);
+    invalidate(globalKey);
+    return _locked(globalKey, () async {
+      final conversion = await _database.getDownloadConversion(globalKey);
+      final state = conversion?.state;
+      if (conversion == null || state == null) return;
+      await _database.updateDownloadConversionState(globalKey, null, quality: conversion.quality);
+      final client = await clientFor();
+      if (client != null) await _discardState(state, client);
+    });
   }
 
-  Future<void> _release(String globalKey, Future<MediaServerClient?> Function() clientFor) async {
-    final conversion = await _database.getDownloadConversion(globalKey);
-    final state = conversion?.state;
-    if (conversion == null || state == null) return;
-    await _database.updateDownloadConversionState(globalKey, null, quality: conversion.quality);
-    final client = await clientFor();
-    if (client != null) await _discardState(state, client);
+  /// Runs [body] after every earlier locked operation for [globalKey].
+  Future<T> _locked<T>(String globalKey, Future<T> Function() body) {
+    final previous = _locks[globalKey] ?? Future<void>.value();
+    final result = previous.then((_) => body());
+    final done = result.then<void>((_) {}, onError: (_) {});
+    _locks[globalKey] = done;
+    unawaited(
+      done.then((_) {
+        if (identical(_locks[globalKey], done)) _locks.remove(globalKey);
+      }),
+    );
+    return result;
   }
 
   /// Polls every waiting conversion now, for example when the app returns
@@ -208,4 +264,9 @@ class DownloadConversionCoordinator {
     _polls.clear();
     _pollCallbacks.clear();
   }
+}
+
+/// Thrown out of a stale step's persist call to stop the backend at once.
+class _StaleConversionStep implements Exception {
+  const _StaleConversionStep();
 }

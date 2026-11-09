@@ -10,6 +10,7 @@ import '../media/media_item_sort.dart';
 import '../media/media_item_types.dart';
 import '../media/media_kind.dart';
 import '../media/media_version.dart';
+import '../media/download_conversion.dart';
 import '../models/download_models.dart';
 import '../models/transcode_quality_preset.dart';
 import '../utils/download_version_utils.dart';
@@ -2466,6 +2467,12 @@ class DownloadProvider extends ChangeNotifier with DisposableChangeNotifierMixin
     TranscodeQualityPreset quality = TranscodeQualityPreset.original,
   }) async {
     if (!_isQueueOwnershipCurrent(ownership)) return false;
+    // A rule's smaller copies wait for a server that offers them again (it
+    // may still be connecting) rather than quietly downloading the original.
+    if (!quality.isOriginal && !offersDownloadConversion(client)) {
+      appLogger.i('Sync rule download of ${item.globalKey} waits: the server does not offer ${quality.name} now');
+      return false;
+    }
     return _queueSingleDownload(
       item,
       client,

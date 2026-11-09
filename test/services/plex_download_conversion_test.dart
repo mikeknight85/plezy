@@ -18,6 +18,7 @@ class _FakeQueue implements PlexDownloadQueueService {
   String itemKey = '/library/metadata/42';
   Object? createError;
   Object? getItemError;
+  Object? addError;
   Object? decisionError;
 
   @override
@@ -34,6 +35,10 @@ class _FakeQueue implements PlexDownloadQueueService {
     required int mediaIndex,
     required TranscodeQualityPreset quality,
   }) async {
+    if (addError case final error?) {
+      addError = null;
+      throw error;
+    }
     added.add((queueId: queueId, ratingKey: ratingKey, mediaIndex: mediaIndex, quality: quality));
     return '${100 + added.length}';
   }
@@ -178,6 +183,16 @@ void main() {
     expect(step, isA<DownloadConversionPreparing>());
     expect(queue.added, hasLength(2));
     expect((step as DownloadConversionPreparing).state, contains('"restarts":1'));
+  });
+
+  test('a saved queue the server has dropped is replaced by a new one', () async {
+    queue.addError = MediaServerHttpException(type: MediaServerHttpErrorType.unknown, message: 'gone', statusCode: 404);
+
+    final step = await conversion().advance(request, state: '{"queueId":"7"}', persist: persist);
+
+    expect(step, isA<DownloadConversionPreparing>());
+    expect(queue.created, 1);
+    expect(queue.added.last.queueId, '11');
   });
 
   test('a server error discards the job and reports Plex\'s reason', () async {

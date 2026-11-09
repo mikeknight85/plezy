@@ -2818,13 +2818,16 @@ class PlexClient
   bool get serverSupportsVideoTranscodingCached => _serverTranscoderCached ?? true;
 
   Future<bool> _fetchTranscoderCapability() async {
+    // allowSync is per user: a response for a token replaced meanwhile must
+    // not describe the new profile.
+    final session = _authenticationSessionId;
     try {
       // Tight timeout: `/` returns a tiny MediaContainer — any responsive
       // server answers in well under a second. Inheriting the default 120 s
       // receive timeout would keep a hung server from ever resolving.
       final response = await _http.get('/', timeout: const Duration(seconds: 5));
       final capabilities = PlexRootCapabilities.fromMediaContainer(_getMediaContainer(response));
-      if (capabilities != null) _rootCapabilities = capabilities;
+      if (capabilities != null && identical(session, _authenticationSessionId)) _rootCapabilities = capabilities;
       final supported = capabilities?.transcoderVideo ?? true;
       _serverTranscoderCached = supported;
       return supported;

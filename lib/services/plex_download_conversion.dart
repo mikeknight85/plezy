@@ -50,12 +50,19 @@ class PlexDownloadConversion implements DownloadConversion {
       }
       if (current.itemId == null) {
         final mediaIndex = await _resolveMediaIndex(request);
-        final itemId = await _queue.add(
-          current.queueId!,
-          ratingKey: request.itemId,
-          mediaIndex: mediaIndex,
-          quality: request.quality,
-        );
+        final String itemId;
+        try {
+          itemId = await _queue.add(
+            current.queueId!,
+            ratingKey: request.itemId,
+            mediaIndex: mediaIndex,
+            quality: request.quality,
+          );
+        } on MediaServerHttpException catch (error) {
+          // A saved queue the server has since dropped: start a new one.
+          if (error.statusCode != 404 || state == null) rethrow;
+          return await _restart(request, current, persist, keepQueue: false);
+        }
         current = current.copyWith(itemId: itemId);
         await persist(current.encode());
       }
@@ -65,7 +72,8 @@ class PlexDownloadConversion implements DownloadConversion {
         item = await _queue.getItem(current.queueId!, current.itemId!);
       } on MediaServerHttpException catch (error) {
         if (error.statusCode != 404 && error.statusCode != 410) rethrow;
-        return await _restart(request, current, persist);
+        // The item, or its whole queue, is gone from the server.
+        return await _restart(request, current, persist, keepQueue: false);
       }
       if (item.key != '/library/metadata/${Uri.encodeComponent(request.itemId)}') {
         await discard(current.encode());
@@ -74,7 +82,7 @@ class PlexDownloadConversion implements DownloadConversion {
       switch (item.status) {
         case PlexDownloadQueueStatus.expired:
           await _removeQuietly(current);
-          return await _restart(request, current, persist);
+          return await _restart(request, current, persist, keepQueue: true);
         case PlexDownloadQueueStatus.error:
           await _removeQuietly(current);
           return DownloadConversionFailed(item.error ?? 'Plex could not prepare the download');
@@ -109,12 +117,13 @@ class PlexDownloadConversion implements DownloadConversion {
   Future<DownloadConversionStep> _restart(
     DownloadConversionRequest request,
     _PlexConversionState expired,
-    Future<void> Function(String state) persist,
-  ) async {
+    Future<void> Function(String state) persist, {
+    required bool keepQueue,
+  }) async {
     if (expired.restarts >= maxRestarts) {
       return const DownloadConversionFailed('Plex removed the prepared download before it finished');
     }
-    final next = _PlexConversionState(queueId: expired.queueId, restarts: expired.restarts + 1);
+    final next = _PlexConversionState(queueId: keepQueue ? expired.queueId : null, restarts: expired.restarts + 1);
     await persist(next.encode());
     return advance(request, state: next.encode(), persist: persist);
   }

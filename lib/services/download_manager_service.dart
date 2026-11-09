@@ -1812,7 +1812,7 @@ class DownloadManagerService {
     // caller's to discard.
     final prior = await _database.getDownloadedMedia(globalKey);
     final clientScopeId = client.cacheServerId == metadata.serverId ? null : client.cacheServerId;
-    final outcome = await _database.insertQueuedDownload(
+    Future<QueueDownloadOutcome> insert() => _database.insertQueuedDownload(
       serverId: ServerId(metadata.serverId!),
       clientScopeId: clientScopeId,
       ratingKey: metadata.id,
@@ -1828,6 +1828,18 @@ class DownloadManagerService {
       downloadSubtitles: downloadSubtitles,
       downloadArtwork: downloadArtwork,
     );
+    // Clients that cannot convert, asked for the original, skip the
+    // conversion bookkeeping entirely.
+    final outcome = client is DownloadConversionSource || !quality.isOriginal
+        ? await _conversions.admit(
+            globalKey,
+            quality,
+            client: client,
+            clientScopeId: clientScopeId,
+            insert: insert,
+            admitted: (outcome) => outcome == QueueDownloadOutcome.admitted,
+          )
+        : await insert();
     if (outcome == QueueDownloadOutcome.unchanged) {
       appLogger.i('Download already active, paused, or completed for $globalKey');
       return storedMetadata;
@@ -1835,7 +1847,6 @@ class DownloadManagerService {
 
     if (outcome == QueueDownloadOutcome.admitted) {
       if (prior != null && prior.additionalPartPathList != null) await _discardStackedAttempt(prior);
-      await _conversions.request(globalKey, quality, client: client, clientScopeId: clientScopeId);
       // Metadata pinning is useful for offline preparation, but the durable
       // download request must remain executable if cache persistence fails.
       try {
@@ -2086,6 +2097,36 @@ class DownloadManagerService {
         return true;
       }
 
+      // A converted download stays queued while the server prepares its
+      // copy. Each poll stops here, before any of the work below.
+      ConversionReady? convertedCopy;
+      if (client is DownloadConversionSource && await _conversions.isConverted(globalKey)) {
+        final outcome = await _conversions.advance(
+          existing,
+          client,
+          clientScopeId: client.cacheServerId == existing.serverId ? null : client.cacheServerId,
+          onPollDue: () => unawaited(_processQueue(client)),
+        );
+        switch (outcome) {
+          case null:
+            break;
+          case ConversionWaiting(:final percent):
+            // A poll that reached the server undoes earlier transient failures.
+            if (existing.retryCount > 0 || existing.errorMessage != null) {
+              await _database.clearDownloadError(globalKey);
+            }
+            await _database.updateDownloadProgress(globalKey, percent ?? 0, 0, 0);
+            _emitProgress(globalKey, DownloadStatus.queued, percent ?? 0, currentFile: preparingDownloadFile);
+            return true;
+          case ConversionSuperseded():
+            return true;
+          case ConversionFailedOutcome(:final message):
+            throw DownloadConversionException(message);
+          case final ConversionReady ready:
+            convertedCopy = ready;
+        }
+      }
+
       appLogger.i('Preparing download for $globalKey');
       await _cleanupStaleDownload(globalKey);
       if (await _isInactiveForEnqueue(globalKey)) {
@@ -2094,12 +2135,12 @@ class DownloadManagerService {
         return true;
       }
       if (_queueBlockedByStorageFailure) return true;
-      // A converted download stays queued while the server prepares its copy.
-      final converted = await _conversions.isConverted(globalKey);
       // A stacked download resuming at a later file keeps what its stored files earned.
-      if (!converted) {
-        await _transitionStatus(globalKey, DownloadStatus.downloading, progress: _storedPartsPercent(existing));
-      }
+      await _transitionStatus(
+        globalKey,
+        DownloadStatus.downloading,
+        progress: convertedCopy == null ? _storedPartsPercent(existing) : 0,
+      );
 
       final parsed = parseGlobalKey(globalKey);
       if (parsed == null) throw Exception('Invalid globalKey: $globalKey');
@@ -2144,34 +2185,15 @@ class DownloadManagerService {
       }
 
       String? firstExtension;
-      if (converted) {
-        final outcome = await _conversions.advance(
-          existing,
-          client,
-          clientScopeId: client.cacheServerId == existing.serverId ? null : client.cacheServerId,
-          onPollDue: () => unawaited(_processQueue(client)),
+      if (convertedCopy != null) {
+        // The server joins every part into the one prepared file.
+        resolution = DownloadResolution(
+          videoUrl: convertedCopy.url,
+          mediaSourceId: resolution.mediaSourceId,
+          externalSubtitles: resolution.externalSubtitles,
+          externalSubtitlesResolved: resolution.externalSubtitlesResolved,
         );
-        switch (outcome) {
-          case null:
-            break;
-          case ConversionWaiting(:final percent):
-            await _database.updateDownloadProgress(globalKey, percent ?? 0, 0, 0);
-            _emitProgress(globalKey, DownloadStatus.queued, percent ?? 0, currentFile: preparingDownloadFile);
-            return true;
-          case ConversionSuperseded():
-            return true;
-          case ConversionFailedOutcome(:final message):
-            throw DownloadConversionException(message);
-          case ConversionReady(:final url, :final extension):
-            // Plex joins every part into the one prepared file.
-            resolution = DownloadResolution(
-              videoUrl: url,
-              mediaSourceId: resolution.mediaSourceId,
-              externalSubtitles: resolution.externalSubtitles,
-              externalSubtitlesResolved: resolution.externalSubtitlesResolved,
-            );
-            firstExtension = extension;
-        }
+        firstExtension = convertedCopy.extension;
       }
 
       if (await _isCancelledOrDeleted(globalKey)) {
@@ -2181,7 +2203,6 @@ class DownloadManagerService {
         return true;
       }
 
-      if (converted) await _transitionStatus(globalKey, DownloadStatus.downloading);
       final partIndex = await _partToDownload(globalKey, resolution);
 
       final showYear = metadata.isEpisode
@@ -3517,6 +3538,9 @@ class DownloadManagerService {
 
     try {
       _cancelDownloadTimers(globalKey);
+      // Stop polling; a step in flight must not mark it downloading. The
+      // server-side job is kept for resume.
+      _conversions.invalidate(globalKey);
       final bgTaskId = await _database.getBgTaskId(globalKey);
       await _cancelNativeTasksForGlobalKey(globalKey, exceptTaskId: bgTaskId, reason: 'duplicate task before pause');
       if (bgTaskId != null && downloadsSupported) {
