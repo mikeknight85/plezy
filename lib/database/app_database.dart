@@ -1258,6 +1258,7 @@ class AppDatabase extends _$AppDatabase {
     required String targetType,
     required int episodeCount,
     int mediaIndex = 0,
+    String? downloadQuality,
     String downloadFilter = 'unwatched',
     bool includeSpecials = true,
   }) async {
@@ -1276,6 +1277,7 @@ class AppDatabase extends _$AppDatabase {
         episodeCount: episodeCount,
         createdAt: DateTime.now().millisecondsSinceEpoch,
         mediaIndex: Value(mediaIndex),
+        downloadQuality: Value(downloadQuality),
         downloadFilter: Value(downloadFilter),
         includeSpecials: Value(includeSpecials),
       ),
@@ -1287,6 +1289,7 @@ class AppDatabase extends _$AppDatabase {
           targetType: Value(targetType),
           episodeCount: Value(episodeCount),
           mediaIndex: Value(mediaIndex),
+          downloadQuality: Value(downloadQuality),
           downloadFilter: Value(downloadFilter),
           includeSpecials: Value(includeSpecials),
         ),

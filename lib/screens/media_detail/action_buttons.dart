@@ -754,7 +754,8 @@ extension _MediaDetailActionButtons on _MediaDetailScreenState {
     }
 
     // Queued (waiting to download)
-    if (progress?.status == DownloadStatus.queued) {
+    final isPreparing = currentFile == preparingDownloadFile;
+    if (progress?.status == DownloadStatus.queued && !isPreparing) {
       return _DownloadButtonSpec(
         icon: const AppIcon(Symbols.schedule_rounded, fill: 1),
         tooltip: currentFile != null && currentFile.contains('episodes')
@@ -766,10 +767,14 @@ extension _MediaDetailActionButtons on _MediaDetailScreenState {
 
     // Downloading (active download); the tooltip carries the episode count
     // for shows/seasons.
-    if (progress?.status == DownloadStatus.downloading) {
+    if (progress?.status == DownloadStatus.downloading || isPreparing) {
       return _DownloadButtonSpec(
-        icon: _buildRadialProgress(progress?.progressPercent),
-        tooltip: currentFile != null && currentFile.contains('episodes')
+        icon: _buildRadialProgress(isPreparing && progress!.progress == 0 ? null : progress?.progressPercent),
+        tooltip: isPreparing
+            ? progress!.progress > 0
+                  ? t.downloads.preparingVideoProgress(percent: progress.progress)
+                  : t.downloads.preparingVideo
+            : currentFile != null && currentFile.contains('episodes')
             ? t.downloads.downloadingFilesTooltip(files: currentFile)
             : t.downloads.downloadingTooltip,
         interactive: false,

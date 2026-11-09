@@ -570,16 +570,6 @@ Future<bool?> navigateToVideoPlayerWithRefresh(
 /// Sum of [MediaPart.sizeBytes] across all parts of [version]. Returns
 /// null when any part is missing a size (a partial sum would be misleading
 /// for the "Original" row in the quality picker).
-int? _versionSizeBytes(MediaVersion? version) {
-  if (version == null || version.parts.isEmpty) return null;
-  var total = 0;
-  for (final p in version.parts) {
-    final s = p.sizeBytes;
-    if (s == null || s <= 0) return null;
-    total += s;
-  }
-  return total > 0 ? total : null;
-}
 
 /// The shared "Play Version..." flow behind the detail screen's split Play
 /// segment and the context menu entry: pick a version when the item has a
@@ -618,7 +608,7 @@ Future<bool> promptAndPlayVersion(BuildContext context, MediaItem item) async {
       context,
       sourceBitrateKbps: selectedVersion?.bitrate,
       sourceDurationMs: item.durationMs,
-      sourceSizeBytes: _versionSizeBytes(selectedVersion),
+      sourceSizeBytes: versionSizeBytes(selectedVersion),
     );
     if (picked == null || !context.mounted) return false;
     selectedQuality = picked;

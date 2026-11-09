@@ -24,6 +24,14 @@ enum TranscodeQualityPreset {
 
   bool get isOriginal => this == TranscodeQualityPreset.original;
 
+  /// Stored form of a download quality: null for original.
+  String? get storageValue => isOriginal ? null : name;
+
+  /// Reads [storageValue]. An unknown name, such as one written by a newer
+  /// version, falls back to the original file.
+  static TranscodeQualityPreset fromStorage(String? name) =>
+      name == null ? original : values.asNameMap()[name] ?? original;
+
   /// Resolution height (e.g. 720, 1080) parsed from [videoResolution]. Null for original.
   int? get resolutionHeight {
     final r = videoResolution;

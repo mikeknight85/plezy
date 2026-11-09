@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import '../i18n/strings.g.dart';
 
 import '../database/app_database.dart';
+import '../database/download_conversion_operations.dart';
 import '../media/media_item.dart';
 import '../media/media_item_types.dart';
 import '../media/media_server_client.dart';
@@ -106,6 +107,19 @@ class PlaybackInitializationService {
     }
   }
 
+  /// Whether the download of [ratingKey] is a converted copy rather than
+  /// the original file. One primary-key lookup, only for downloaded playback.
+  Future<bool> _isConvertedDownload(ServerId serverId, String ratingKey) async {
+    final db = database;
+    if (db == null) return false;
+    try {
+      return await db.getDownloadConversion(buildGlobalKey(serverId, ratingKey)) != null;
+    } catch (e) {
+      appLogger.w('Could not read the download conversion for $ratingKey', error: e);
+      return false;
+    }
+  }
+
   /// Fetch playback data for the given metadata.
   ///
   /// Online path: delegates to [MediaServerClient.getPlaybackInitialization].
@@ -141,11 +155,13 @@ class PlaybackInitializationService {
     if (offlineSource != null) {
       final mediaInfo = await _cachedMediaInfo(metadata, offlineSource.mediaIndex, position: options.startPosition);
       var offlineVideoPath = offlineSource.path;
+      final isConverted = await _isConvertedDownload(ServerId(serverId!), metadata.id);
       // A stacked item plays the downloaded file holding the start position.
-      final partIndex = mediaInfo?.partTimeline?.currentIndex ?? 0;
+      // A converted copy is one joined file, so it has no later files.
+      final partIndex = isConverted ? 0 : mediaInfo?.partTimeline?.currentIndex ?? 0;
       if (partIndex > 0) {
         final partSource = await _resolveOfflineVideoSource(
-          ServerId(serverId!),
+          ServerId(serverId),
           metadata.id,
           mediaIndex: offlineSource.mediaIndex,
           selectedMediaSourceId: offlineSource.mediaSourceId,
@@ -175,6 +191,7 @@ class PlaybackInitializationService {
           mediaInfo: mediaInfo,
           selectedMediaIndex: offlineSource.mediaIndex,
           selectedMediaSourceId: offlineSource.mediaSourceId,
+          isConverted: isConverted,
         );
       }
     }
@@ -207,6 +224,7 @@ class PlaybackInitializationService {
     required MediaSourceInfo? mediaInfo,
     required int selectedMediaIndex,
     String? selectedMediaSourceId,
+    bool isConverted = false,
   }) async {
     final subtitleSidecars = await _discoverSidecarSubtitles(
       offlineVideoPath,
@@ -217,7 +235,10 @@ class PlaybackInitializationService {
     return PlaybackInitializationResult(
       availableVersions: const [],
       videoUrl: _formatVideoUrl(offlineVideoPath),
-      mediaInfo: mediaInfo,
+      // The original's stream IDs, codecs and track indexes do not describe a
+      // converted copy, so the player reads its tracks from the file. The
+      // cached original still labels the sidecars above.
+      mediaInfo: isConverted ? null : mediaInfo,
       subtitleSidecars: subtitleSidecars,
       isOffline: true,
       playMethod: 'DirectPlay',

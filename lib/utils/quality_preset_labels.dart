@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 
+import '../media/media_version.dart';
 import '../i18n/strings.g.dart';
 import '../models/transcode_quality_preset.dart';
 import 'dialogs.dart';
@@ -82,6 +83,7 @@ String? qualityPresetSizeEstimate({
 Future<TranscodeQualityPreset?> showQualityPickerDialog(
   BuildContext context, {
   String? title,
+  String? description,
   int? sourceBitrateKbps,
   int? sourceDurationMs,
   int? sourceSizeBytes,
@@ -100,6 +102,19 @@ Future<TranscodeQualityPreset?> showQualityPickerDialog(
   return showOptionPickerDialog<TranscodeQualityPreset>(
     context,
     title: title ?? t.videoControls.qualityColumnHeader,
+    description: description,
     options: TranscodeQualityPreset.displayOrder.map((p) => (icon: null, label: labelFor(p), value: p)).toList(),
   );
+}
+
+/// Total size of [version]'s files, or null when any part's size is unknown.
+int? versionSizeBytes(MediaVersion? version) {
+  if (version == null || version.parts.isEmpty) return null;
+  var total = 0;
+  for (final p in version.parts) {
+    final s = p.sizeBytes;
+    if (s == null || s <= 0) return null;
+    total += s;
+  }
+  return total > 0 ? total : null;
 }
