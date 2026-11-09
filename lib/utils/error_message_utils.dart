@@ -1,5 +1,6 @@
 import '../exceptions/media_server_exceptions.dart';
 import '../i18n/strings.g.dart';
+import '../media/download_conversion.dart';
 import '../services/playback_initialization_types.dart';
 import 'app_logger.dart';
 
@@ -50,6 +51,7 @@ String localizedErrorReason(Object error) {
   // specific reason ("Stream selection is not available for this source") is
   // better than anything this function could substitute.
   if (error is PlaybackException) return error.message;
+  if (error is DownloadConversionException) return t.downloads.conversionFailed;
   if (error is MediaServerException) {
     final display = error.display;
     if (display != null && display.isNotEmpty) return display;

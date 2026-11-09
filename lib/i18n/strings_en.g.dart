@@ -4863,6 +4863,21 @@ class Translations$downloads$en {
 	/// en: 'Select Version'
 	String get selectVersion => 'Select Version';
 
+	/// en: 'Download Quality'
+	String get selectQuality => 'Download Quality';
+
+	/// en: 'For a smaller copy, the server prepares the video first. Keep Plezy open while it does; the download then continues in the background.'
+	String get preparationBackgroundHint => 'For a smaller copy, the server prepares the video first. Keep Plezy open while it does; the download then continues in the background.';
+
+	/// en: 'Preparing video…'
+	String get preparingVideo => 'Preparing video…';
+
+	/// en: 'Preparing video… ${percent}%'
+	String preparingVideoProgress({required Object percent}) => 'Preparing video… ${percent}%';
+
+	/// en: 'The server could not prepare a smaller copy. Try again, or download the original.'
+	String get conversionFailed => 'The server could not prepare a smaller copy. Try again, or download the original.';
+
 	/// en: 'All episodes'
 	String get allEpisodes => 'All episodes';
 
@@ -9942,6 +9957,11 @@ extension on Translations {
 			'downloads.retryFailed' => 'Retry failed downloads',
 			'downloads.deleteAll' => 'Delete all',
 			'downloads.selectVersion' => 'Select Version',
+			'downloads.selectQuality' => 'Download Quality',
+			'downloads.preparationBackgroundHint' => 'For a smaller copy, the server prepares the video first. Keep Plezy open while it does; the download then continues in the background.',
+			'downloads.preparingVideo' => 'Preparing video…',
+			'downloads.preparingVideoProgress' => ({required Object percent}) => 'Preparing video… ${percent}%',
+			'downloads.conversionFailed' => 'The server could not prepare a smaller copy. Try again, or download the original.',
 			'downloads.allEpisodes' => 'All episodes',
 			'downloads.unwatchedOnly' => 'Unwatched only',
 			'downloads.nextNUnwatched' => ({required Object count}) => 'Next ${count} unwatched',
@@ -10168,13 +10188,13 @@ extension on Translations {
 			'performanceOverlay.minLuma' => 'Min Luma',
 			'performanceOverlay.maxCll' => 'MaxCLL',
 			'performanceOverlay.maxFall' => 'MaxFALL',
+			_ => null,
+		} ?? switch (path) {
 			'performanceOverlay.cacheUsed' => 'Cache Used',
 			'performanceOverlay.cacheLimit' => 'Cache Limit',
 			'performanceOverlay.speed' => 'Speed',
 			'performanceOverlay.player' => 'Player',
 			'performanceOverlay.playMethod' => 'Play Method',
-			_ => null,
-		} ?? switch (path) {
 			'performanceOverlay.memory' => 'Memory',
 			'performanceOverlay.uiFps' => 'UI FPS',
 			'performanceOverlay.fps' => 'FPS',

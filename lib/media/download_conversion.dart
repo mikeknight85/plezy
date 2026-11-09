@@ -98,3 +98,14 @@ final class DownloadConversionFailed extends DownloadConversionStep {
 
   const DownloadConversionFailed(this.message);
 }
+
+/// A download failed because the server could not prepare its copy.
+/// [message] is the server's English reason, kept for logs.
+class DownloadConversionException implements Exception {
+  final String message;
+
+  const DownloadConversionException(this.message);
+
+  @override
+  String toString() => 'DownloadConversionException: $message';
+}

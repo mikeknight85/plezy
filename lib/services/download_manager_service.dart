@@ -11,6 +11,7 @@ import 'package:plezy/utils/media_server_http_client.dart';
 import '../exceptions/media_server_exceptions.dart';
 import '../database/app_database.dart';
 import '../database/download_operations.dart';
+import '../media/download_conversion.dart';
 import '../media/download_resolution.dart';
 import '../media/media_backend.dart';
 import '../media/media_item.dart';
@@ -28,6 +29,8 @@ import 'settings_service.dart';
 import 'saf_storage_service.dart';
 import 'package:saf_util/saf_util_platform_interface.dart' show SafDocumentFile;
 import '../models/download_models.dart';
+import '../models/transcode_quality_preset.dart';
+import 'download_conversion_coordinator.dart';
 import '../services/offline_mode_source.dart';
 import '../services/download_storage_service.dart';
 import '../i18n/strings.g.dart';
@@ -153,6 +156,9 @@ List<List<DownloadSubtitleSpec>> _subtitlesPerPart(DownloadResolution resolution
 
 class DownloadManagerService {
   final AppDatabase _database;
+
+  /// Server-side conversions of downloads that asked for a smaller copy.
+  final DownloadConversionCoordinator _conversions;
   final DownloadStorageService _storageService;
   final MediaServerHttpClient _http;
   final DownloadArtworkService _artworkService;
@@ -299,7 +305,9 @@ class DownloadManagerService {
     @visibleForTesting Future<void> Function(String?)? downloadPathTypeWriter,
     @visibleForTesting Future<void> Function()? downloadStorageRefresher,
     @visibleForTesting Duration autoRetryDelay = _defaultAutoRetryDelay,
+    @visibleForTesting Duration conversionPollDelay = const Duration(seconds: 5),
   }) : _queueProcessorOverride = queueProcessorOverride,
+       _conversions = DownloadConversionCoordinator(database, pollDelay: conversionPollDelay),
        _autoRetryDelay = autoRetryDelay,
        _nativeRecoveryOverride = nativeRecoveryOverride,
        _database = database,
@@ -1780,6 +1788,7 @@ class DownloadManagerService {
     bool downloadSubtitles = true,
     bool downloadArtwork = true,
     int mediaIndex = 0,
+    TranscodeQualityPreset quality = TranscodeQualityPreset.original,
   }) async {
     if (_skipDownloadsUnsupported('queue download')) return metadata;
     _rearmQueueForUserAction('new download');
@@ -1802,9 +1811,10 @@ class DownloadManagerService {
     // Read before the upsert: a re-admitted stacked attempt's files are the
     // caller's to discard.
     final prior = await _database.getDownloadedMedia(globalKey);
+    final clientScopeId = client.cacheServerId == metadata.serverId ? null : client.cacheServerId;
     final outcome = await _database.insertQueuedDownload(
       serverId: ServerId(metadata.serverId!),
-      clientScopeId: client.cacheServerId == metadata.serverId ? null : client.cacheServerId,
+      clientScopeId: clientScopeId,
       ratingKey: metadata.id,
       globalKey: globalKey,
       type: metadata.kind.id,
@@ -1825,6 +1835,7 @@ class DownloadManagerService {
 
     if (outcome == QueueDownloadOutcome.admitted) {
       if (prior != null && prior.additionalPartPathList != null) await _discardStackedAttempt(prior);
+      await _conversions.request(globalKey, quality, client: client, clientScopeId: clientScopeId);
       // Metadata pinning is useful for offline preparation, but the durable
       // download request must remain executable if cache persistence fails.
       try {
@@ -1900,7 +1911,9 @@ class DownloadManagerService {
             break;
           }
 
-          final nextItem = await _database.getNextQueueItem(excludedGlobalKeys: skippedGlobalKeys);
+          final nextItem = await _database.getNextQueueItem(
+            excludedGlobalKeys: {...skippedGlobalKeys, ..._conversions.waitingKeys},
+          );
           if (nextItem == null) break;
 
           // Resolve the correct client for the item's server/scope — skip if unavailable.
@@ -2081,8 +2094,12 @@ class DownloadManagerService {
         return true;
       }
       if (_queueBlockedByStorageFailure) return true;
+      // A converted download stays queued while the server prepares its copy.
+      final converted = await _conversions.isConverted(globalKey);
       // A stacked download resuming at a later file keeps what its stored files earned.
-      await _transitionStatus(globalKey, DownloadStatus.downloading, progress: _storedPartsPercent(existing));
+      if (!converted) {
+        await _transitionStatus(globalKey, DownloadStatus.downloading, progress: _storedPartsPercent(existing));
+      }
 
       final parsed = parseGlobalKey(globalKey);
       if (parsed == null) throw Exception('Invalid globalKey: $globalKey');
@@ -2126,6 +2143,37 @@ class DownloadManagerService {
         await _database.updateDownloadMediaSource(globalKey, resolution.mediaSourceId);
       }
 
+      String? firstExtension;
+      if (converted) {
+        final outcome = await _conversions.advance(
+          existing,
+          client,
+          clientScopeId: client.cacheServerId == existing.serverId ? null : client.cacheServerId,
+          onPollDue: () => unawaited(_processQueue(client)),
+        );
+        switch (outcome) {
+          case null:
+            break;
+          case ConversionWaiting(:final percent):
+            await _database.updateDownloadProgress(globalKey, percent ?? 0, 0, 0);
+            _emitProgress(globalKey, DownloadStatus.queued, percent ?? 0, currentFile: preparingDownloadFile);
+            return true;
+          case ConversionSuperseded():
+            return true;
+          case ConversionFailedOutcome(:final message):
+            throw DownloadConversionException(message);
+          case ConversionReady(:final url, :final extension):
+            // Plex joins every part into the one prepared file.
+            resolution = DownloadResolution(
+              videoUrl: url,
+              mediaSourceId: resolution.mediaSourceId,
+              externalSubtitles: resolution.externalSubtitles,
+              externalSubtitlesResolved: resolution.externalSubtitlesResolved,
+            );
+            firstExtension = extension;
+        }
+      }
+
       if (await _isCancelledOrDeleted(globalKey)) {
         appLogger.d('Skipping enqueue for $globalKey: cancelled during preparation');
         await _database.removeFromQueue(globalKey);
@@ -2133,6 +2181,7 @@ class DownloadManagerService {
         return true;
       }
 
+      if (converted) await _transitionStatus(globalKey, DownloadStatus.downloading);
       final partIndex = await _partToDownload(globalKey, resolution);
 
       final showYear = metadata.isEpisode
@@ -2147,6 +2196,7 @@ class DownloadManagerService {
         resolution: resolution,
         partIndex: partIndex,
         showYear: showYear,
+        firstExtension: firstExtension,
       );
       return true;
     } catch (e, st) {
@@ -2249,10 +2299,11 @@ class DownloadManagerService {
     required DownloadResolution resolution,
     required int partIndex,
     required int? showYear,
+    String? firstExtension,
   }) async {
     final serverId = parseGlobalKey(globalKey)?.serverId;
     if (serverId == null) throw Exception('Invalid globalKey: $globalKey');
-    final firstExt = downloadExtensionFromUrl(resolution.videoUrl!) ?? 'mp4';
+    final firstExt = firstExtension ?? downloadExtensionFromUrl(resolution.videoUrl!) ?? 'mp4';
     final url = partIndex == 0 ? resolution.videoUrl! : resolution.additionalParts[partIndex - 1].url;
     final ext = partIndex == 0 ? firstExt : downloadExtensionFromUrl(url) ?? 'mp4';
     String partTarget(String firstFile) =>
@@ -3060,6 +3111,7 @@ class DownloadManagerService {
 
       // The primary video is terminal independently of supplementary outcome.
       await _transitionStatus(globalKey, DownloadStatus.completed);
+      await _conversions.discard(globalKey, () async => ctx?.client ?? await _getClientForDownloadKey(globalKey));
       try {
         if (artworkSettled && subtitlesSettled) {
           await _database.removeFromQueue(globalKey);
@@ -3571,6 +3623,7 @@ class DownloadManagerService {
     _cancellingKeys.add(globalKey);
     try {
       _cancelDownloadTimers(globalKey);
+      await _conversions.discard(globalKey, () => _getClientForDownloadKey(globalKey));
       final bgTaskId = await _database.getBgTaskId(globalKey);
       await _database.updateBgTaskId(globalKey, null);
       await _cancelNativeTasksForGlobalKey(globalKey, includeTaskId: bgTaskId, reason: reason);
@@ -4490,8 +4543,13 @@ class DownloadManagerService {
     return collection;
   }
 
+  /// Polls every download whose server is preparing a smaller copy now,
+  /// rather than when its timer fires. A no-op without such downloads.
+  void pollPreparingDownloadsNow() => _conversions.pollWaitingNow();
+
   void dispose() {
     _disposed = true;
+    _conversions.dispose();
     for (final timer in _progressDebounceTimers.values) {
       timer.cancel();
     }

@@ -1685,6 +1685,9 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
       case AppLifecycleState.resumed:
         // App came back to foreground - trigger sync check
         _offlineWatchSyncService.onAppResumed();
+        // Servers keep preparing converted downloads while the OS suspends
+        // the app; check on them now instead of after the suspended timer.
+        _downloadManager.pollPreparingDownloadsNow();
         unawaited(TrackerCoordinator.instance.flushWriteQueue());
         // Re-arm the per-server library push channels torn down on pause
         // (and any that exhausted their reconnect attempts).

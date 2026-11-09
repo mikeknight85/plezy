@@ -15,6 +15,9 @@ enum DownloadStatus {
   partial, // Some episodes downloaded, but not all (for shows/seasons)
 }
 
+/// [DownloadProgress.currentFile] while the server prepares a smaller copy.
+const preparingDownloadFile = 'preparing';
+
 @freezed
 sealed class DownloadProgress with _$DownloadProgress {
   const DownloadProgress._();
