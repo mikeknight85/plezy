@@ -13,8 +13,10 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plezy/database/app_database.dart';
 import 'package:plezy/i18n/strings.g.dart';
+import 'package:plezy/database/download_conversion_operations.dart';
 import 'package:plezy/database/download_operations.dart';
 import 'package:plezy/exceptions/media_server_exceptions.dart';
+import 'package:plezy/media/download_conversion.dart';
 import 'package:plezy/media/download_resolution.dart';
 import 'package:plezy/media/media_backend.dart';
 import 'package:plezy/media/media_item.dart';
@@ -22,6 +24,8 @@ import 'package:plezy/media/media_kind.dart';
 import 'package:plezy/media/media_source_info.dart';
 import 'package:plezy/media/media_server_client.dart';
 import 'package:plezy/models/download_models.dart';
+import 'package:plezy/models/transcode_quality_preset.dart';
+import 'package:plezy/services/download_conversion_coordinator.dart';
 import 'package:plezy/services/download_artwork_helpers.dart';
 import 'package:plezy/services/download_artwork_service.dart';
 import 'package:plezy/services/download_manager_service.dart';
@@ -3562,6 +3566,205 @@ void main() {
       );
     });
   });
+
+  group('download conversions', () {
+    const sourceUrl = 'https://example.test/library/parts/1/file.mp4';
+    const convertedUrl = 'https://example.test/downloadQueue/11/item/101/media';
+
+    Future<({DownloadManagerService manager, _ConvertingClient client, List<Task> tasks})> start(
+      _SupplementaryFixture fixture, {
+      List<DownloadConversionStep>? steps,
+      bool offers = true,
+      Duration pollDelay = const Duration(milliseconds: 10),
+    }) async {
+      final conversion = _ScriptedConversion(steps ?? const []);
+      final client = _ConvertingClient(
+        metadata: fixture.metadata,
+        conversion: offers ? conversion : null,
+        resolution: () => const DownloadResolution(videoUrl: sourceUrl),
+      );
+      final tasks = <Task>[];
+      final manager = DownloadManagerService(
+        database: fixture.db,
+        storageService: fixture.storage,
+        clientResolver: (serverId, {clientScopeId}) => client,
+        downloadsSupportedOverride: true,
+        fileDownloaderInitializerOverride: () async {},
+        conversionPollDelay: pollDelay,
+        enqueueTaskOverride: (task) async {
+          tasks.add(task);
+          return true;
+        },
+      );
+      addTearDown(manager.dispose);
+      return (manager: manager, client: client, tasks: tasks);
+    }
+
+    Future<void> settle(bool Function() done) async {
+      for (var i = 0; i < 200 && !done(); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      expect(done(), isTrue, reason: 'condition not reached');
+    }
+
+    test('waits while the server prepares the copy, then downloads one MKV file', () async {
+      final fixture = await _createSupplementaryFixture();
+      final (:manager, :client, :tasks) = await start(
+        fixture,
+        steps: const [
+          DownloadConversionPreparing(state: 'job', progress: 0.3),
+          DownloadConversionReady(state: 'job', url: convertedUrl),
+        ],
+      );
+      final preparing = manager.progressStream.firstWhere((event) => event.currentFile == preparingDownloadFile);
+
+      await manager.queueDownload(
+        metadata: fixture.metadata,
+        client: client,
+        quality: TranscodeQualityPreset.p720_2mbps,
+      );
+
+      final event = await preparing.timeout(const Duration(seconds: 5));
+      expect(event.status, DownloadStatus.queued);
+      expect(event.progress, 30);
+      expect(tasks, isEmpty, reason: 'nothing downloads until the copy is ready');
+
+      await settle(() => tasks.isNotEmpty);
+      expect(tasks.single.url, convertedUrl);
+      expect(tasks.single.filename, endsWith('.mkv'));
+      expect(
+        client.scripted!.requests.map((request) => request.quality),
+        everyElement(TranscodeQualityPreset.p720_2mbps),
+      );
+      final conversion = await fixture.db.getDownloadConversion(fixture.metadata.globalKey);
+      expect(conversion?.quality, 'p720_2mbps');
+      expect(conversion?.state, 'job');
+      final stored = await fixture.db.getDownloadedMedia(fixture.metadata.globalKey);
+      expect(stored?.status, DownloadStatus.downloading.index);
+    });
+
+    test('an original download never asks the server to convert', () async {
+      final fixture = await _createSupplementaryFixture();
+      final (:manager, :client, :tasks) = await start(fixture);
+
+      await manager.queueDownload(metadata: fixture.metadata, client: client);
+      await settle(() => tasks.isNotEmpty);
+
+      expect(tasks.single.url, sourceUrl);
+      expect(client.scripted!.requests, isEmpty);
+      expect(await fixture.db.getDownloadConversions(), isEmpty);
+    });
+
+    test('a client that does not offer conversion downloads the original', () async {
+      final fixture = await _createSupplementaryFixture();
+      final (:manager, :client, :tasks) = await start(fixture, offers: false);
+
+      await manager.queueDownload(
+        metadata: fixture.metadata,
+        client: client,
+        quality: TranscodeQualityPreset.p720_2mbps,
+      );
+      await settle(() => tasks.isNotEmpty);
+
+      expect(tasks.single.url, sourceUrl);
+      expect(await fixture.db.getDownloadConversions(), isEmpty);
+    });
+
+    test('a failed conversion fails the download with a localized reason', () async {
+      final fixture = await _createSupplementaryFixture();
+      final (:manager, :client, :tasks) = await start(
+        fixture,
+        steps: const [DownloadConversionFailed('Transcoder failed')],
+      );
+      final failed = manager.progressStream.firstWhere((event) => event.status == DownloadStatus.failed);
+
+      await manager.queueDownload(
+        metadata: fixture.metadata,
+        client: client,
+        quality: TranscodeQualityPreset.p720_2mbps,
+      );
+      await failed.timeout(const Duration(seconds: 5));
+
+      final stored = await fixture.db.getDownloadedMedia(fixture.metadata.globalKey);
+      expect(stored?.status, DownloadStatus.failed.index);
+      expect(stored?.errorMessage, contains(t.downloads.conversionFailed));
+      expect(stored?.errorMessage, isNot(contains('Transcoder failed')));
+      expect(tasks, isEmpty);
+    });
+
+    test('deleting a download that is being prepared discards the server job', () async {
+      final fixture = await _createSupplementaryFixture();
+      final (:manager, :client, :tasks) = await start(
+        fixture,
+        steps: const [DownloadConversionPreparing(state: 'job', progress: 0)],
+        pollDelay: const Duration(hours: 1),
+      );
+      final preparing = manager.progressStream.firstWhere((event) => event.currentFile == preparingDownloadFile);
+
+      await manager.queueDownload(
+        metadata: fixture.metadata,
+        client: client,
+        quality: TranscodeQualityPreset.p720_2mbps,
+      );
+      await preparing.timeout(const Duration(seconds: 5));
+      await manager.deleteDownload(fixture.metadata.globalKey);
+
+      expect(client.scripted!.discarded, ['job']);
+      expect(await fixture.db.getDownloadConversions(), isEmpty);
+      expect(tasks, isEmpty);
+    });
+
+    test('returning to the foreground polls a preparing download at once', () async {
+      final fixture = await _createSupplementaryFixture();
+      final (:manager, :client, :tasks) = await start(
+        fixture,
+        steps: const [
+          DownloadConversionPreparing(state: 'job', progress: 0.5),
+          DownloadConversionReady(state: 'job', url: convertedUrl),
+        ],
+        // A suspended app's timer would not fire before the test ends.
+        pollDelay: const Duration(hours: 1),
+      );
+      final preparing = manager.progressStream.firstWhere((event) => event.currentFile == preparingDownloadFile);
+
+      await manager.queueDownload(
+        metadata: fixture.metadata,
+        client: client,
+        quality: TranscodeQualityPreset.p720_2mbps,
+      );
+      await preparing.timeout(const Duration(seconds: 5));
+      expect(tasks, isEmpty);
+
+      manager.pollPreparingDownloadsNow();
+      await settle(() => tasks.isNotEmpty);
+      expect(tasks.single.url, convertedUrl);
+    });
+
+    test('a finished download frees the server job but stays a converted copy', () async {
+      final fixture = await _createSupplementaryFixture();
+      final conversion = _ScriptedConversion(const []);
+      final client = _ConvertingClient(
+        metadata: fixture.metadata,
+        conversion: conversion,
+        resolution: () => const DownloadResolution(videoUrl: sourceUrl),
+      );
+      await fixture.db.requestDownloadConversion(
+        fixture.metadata.globalKey,
+        quality: TranscodeQualityPreset.p720_2mbps,
+        clientScopeId: null,
+      );
+      await fixture.db.updateDownloadConversionState(fixture.metadata.globalKey, 'job', quality: 'p720_2mbps');
+      final coordinator = DownloadConversionCoordinator(fixture.db);
+      addTearDown(coordinator.dispose);
+
+      await coordinator.discard(fixture.metadata.globalKey, () async => client);
+
+      expect(conversion.discarded, ['job']);
+      final row = await fixture.db.getDownloadConversion(fixture.metadata.globalKey);
+      expect(row?.quality, 'p720_2mbps');
+      expect(row?.state, isNull);
+    });
+  });
 }
 
 Future<_SupplementaryFixture> _createSupplementaryFixture({String? thumbPath, bool saf = false}) async {
@@ -4640,4 +4843,42 @@ class _DirectCachePlexClient implements MediaServerClient, ScopedMediaServerClie
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _ScriptedConversion implements DownloadConversion {
+  _ScriptedConversion(List<DownloadConversionStep> steps) : _steps = [...steps];
+
+  final List<DownloadConversionStep> _steps;
+  final requests = <DownloadConversionRequest>[];
+  final discarded = <String>[];
+
+  @override
+  String get outputExtension => 'mkv';
+
+  @override
+  Future<DownloadConversionStep> advance(
+    DownloadConversionRequest request, {
+    String? state,
+    required Future<void> Function(String state) persist,
+  }) async {
+    requests.add(request);
+    return _steps.length > 1 ? _steps.removeAt(0) : _steps.single;
+  }
+
+  @override
+  Future<void> discard(String state) async => discarded.add(state);
+}
+
+class _ConvertingClient extends _SupplementaryClient implements DownloadConversionSource {
+  _ConvertingClient({required super.metadata, required super.resolution, required this._conversion});
+
+  final DownloadConversion? _conversion;
+
+  _ScriptedConversion? get scripted => _conversion as _ScriptedConversion?;
+
+  @override
+  bool get offersDownloadConversion => _conversion != null;
+
+  @override
+  DownloadConversion get downloadConversion => _conversion ?? (throw StateError('no conversion'));
 }

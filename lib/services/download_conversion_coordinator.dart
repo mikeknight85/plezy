@@ -68,7 +68,9 @@ class DownloadConversionCoordinator {
     final previous = await _database.getDownloadConversion(globalKey);
     if (previous == null && quality.isOriginal) return;
     if (previous?.state case final state?) await _discardState(state, client);
-    if (quality.isOriginal || downloadConversionOf(client) == null) {
+    // Only a client that offers conversion right now may start one, so a
+    // stale or crafted quality never reaches a server without the feature.
+    if (quality.isOriginal || !offersDownloadConversion(client)) {
       await _database.deleteDownloadConversion(globalKey);
       return;
     }
