@@ -1371,6 +1371,344 @@ class DownloadedMediaCompanion extends UpdateCompanion<DownloadedMediaItem> {
   }
 }
 
+class $DownloadConversionsTable extends DownloadConversions
+    with TableInfo<$DownloadConversionsTable, DownloadConversionRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $DownloadConversionsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _globalKeyMeta = const VerificationMeta(
+    'globalKey',
+  );
+  @override
+  late final GeneratedColumn<String> globalKey = GeneratedColumn<String>(
+    'global_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _qualityMeta = const VerificationMeta(
+    'quality',
+  );
+  @override
+  late final GeneratedColumn<String> quality = GeneratedColumn<String>(
+    'quality',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _stateMeta = const VerificationMeta('state');
+  @override
+  late final GeneratedColumn<String> state = GeneratedColumn<String>(
+    'state',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _clientScopeIdMeta = const VerificationMeta(
+    'clientScopeId',
+  );
+  @override
+  late final GeneratedColumn<String> clientScopeId = GeneratedColumn<String>(
+    'client_scope_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    globalKey,
+    quality,
+    state,
+    clientScopeId,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'download_conversions';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<DownloadConversionRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('global_key')) {
+      context.handle(
+        _globalKeyMeta,
+        globalKey.isAcceptableOrUnknown(data['global_key']!, _globalKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_globalKeyMeta);
+    }
+    if (data.containsKey('quality')) {
+      context.handle(
+        _qualityMeta,
+        quality.isAcceptableOrUnknown(data['quality']!, _qualityMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_qualityMeta);
+    }
+    if (data.containsKey('state')) {
+      context.handle(
+        _stateMeta,
+        state.isAcceptableOrUnknown(data['state']!, _stateMeta),
+      );
+    }
+    if (data.containsKey('client_scope_id')) {
+      context.handle(
+        _clientScopeIdMeta,
+        clientScopeId.isAcceptableOrUnknown(
+          data['client_scope_id']!,
+          _clientScopeIdMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {globalKey};
+  @override
+  DownloadConversionRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return DownloadConversionRow(
+      globalKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}global_key'],
+      )!,
+      quality: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}quality'],
+      )!,
+      state: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}state'],
+      ),
+      clientScopeId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}client_scope_id'],
+      ),
+    );
+  }
+
+  @override
+  $DownloadConversionsTable createAlias(String alias) {
+    return $DownloadConversionsTable(attachedDatabase, alias);
+  }
+}
+
+class DownloadConversionRow extends DataClass
+    implements Insertable<DownloadConversionRow> {
+  /// The [DownloadedMedia.globalKey] this conversion belongs to.
+  final String globalKey;
+
+  /// `TranscodeQualityPreset` name; never `original`.
+  final String quality;
+
+  /// Opaque backend state, such as Plex's queue and item IDs. Null until the
+  /// server has been asked to prepare the copy.
+  final String? state;
+
+  /// The client scope that started the job: a server-side conversion belongs
+  /// to the account that created it, so a different scope starts over.
+  final String? clientScopeId;
+  const DownloadConversionRow({
+    required this.globalKey,
+    required this.quality,
+    this.state,
+    this.clientScopeId,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['global_key'] = Variable<String>(globalKey);
+    map['quality'] = Variable<String>(quality);
+    if (!nullToAbsent || state != null) {
+      map['state'] = Variable<String>(state);
+    }
+    if (!nullToAbsent || clientScopeId != null) {
+      map['client_scope_id'] = Variable<String>(clientScopeId);
+    }
+    return map;
+  }
+
+  DownloadConversionsCompanion toCompanion(bool nullToAbsent) {
+    return DownloadConversionsCompanion(
+      globalKey: Value(globalKey),
+      quality: Value(quality),
+      state: state == null && nullToAbsent
+          ? const Value.absent()
+          : Value(state),
+      clientScopeId: clientScopeId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(clientScopeId),
+    );
+  }
+
+  factory DownloadConversionRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return DownloadConversionRow(
+      globalKey: serializer.fromJson<String>(json['globalKey']),
+      quality: serializer.fromJson<String>(json['quality']),
+      state: serializer.fromJson<String?>(json['state']),
+      clientScopeId: serializer.fromJson<String?>(json['clientScopeId']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'globalKey': serializer.toJson<String>(globalKey),
+      'quality': serializer.toJson<String>(quality),
+      'state': serializer.toJson<String?>(state),
+      'clientScopeId': serializer.toJson<String?>(clientScopeId),
+    };
+  }
+
+  DownloadConversionRow copyWith({
+    String? globalKey,
+    String? quality,
+    Value<String?> state = const Value.absent(),
+    Value<String?> clientScopeId = const Value.absent(),
+  }) => DownloadConversionRow(
+    globalKey: globalKey ?? this.globalKey,
+    quality: quality ?? this.quality,
+    state: state.present ? state.value : this.state,
+    clientScopeId: clientScopeId.present
+        ? clientScopeId.value
+        : this.clientScopeId,
+  );
+  DownloadConversionRow copyWithCompanion(DownloadConversionsCompanion data) {
+    return DownloadConversionRow(
+      globalKey: data.globalKey.present ? data.globalKey.value : this.globalKey,
+      quality: data.quality.present ? data.quality.value : this.quality,
+      state: data.state.present ? data.state.value : this.state,
+      clientScopeId: data.clientScopeId.present
+          ? data.clientScopeId.value
+          : this.clientScopeId,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DownloadConversionRow(')
+          ..write('globalKey: $globalKey, ')
+          ..write('quality: $quality, ')
+          ..write('state: $state, ')
+          ..write('clientScopeId: $clientScopeId')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(globalKey, quality, state, clientScopeId);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is DownloadConversionRow &&
+          other.globalKey == this.globalKey &&
+          other.quality == this.quality &&
+          other.state == this.state &&
+          other.clientScopeId == this.clientScopeId);
+}
+
+class DownloadConversionsCompanion
+    extends UpdateCompanion<DownloadConversionRow> {
+  final Value<String> globalKey;
+  final Value<String> quality;
+  final Value<String?> state;
+  final Value<String?> clientScopeId;
+  final Value<int> rowid;
+  const DownloadConversionsCompanion({
+    this.globalKey = const Value.absent(),
+    this.quality = const Value.absent(),
+    this.state = const Value.absent(),
+    this.clientScopeId = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  DownloadConversionsCompanion.insert({
+    required String globalKey,
+    required String quality,
+    this.state = const Value.absent(),
+    this.clientScopeId = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : globalKey = Value(globalKey),
+       quality = Value(quality);
+  static Insertable<DownloadConversionRow> custom({
+    Expression<String>? globalKey,
+    Expression<String>? quality,
+    Expression<String>? state,
+    Expression<String>? clientScopeId,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (globalKey != null) 'global_key': globalKey,
+      if (quality != null) 'quality': quality,
+      if (state != null) 'state': state,
+      if (clientScopeId != null) 'client_scope_id': clientScopeId,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  DownloadConversionsCompanion copyWith({
+    Value<String>? globalKey,
+    Value<String>? quality,
+    Value<String?>? state,
+    Value<String?>? clientScopeId,
+    Value<int>? rowid,
+  }) {
+    return DownloadConversionsCompanion(
+      globalKey: globalKey ?? this.globalKey,
+      quality: quality ?? this.quality,
+      state: state ?? this.state,
+      clientScopeId: clientScopeId ?? this.clientScopeId,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (globalKey.present) {
+      map['global_key'] = Variable<String>(globalKey.value);
+    }
+    if (quality.present) {
+      map['quality'] = Variable<String>(quality.value);
+    }
+    if (state.present) {
+      map['state'] = Variable<String>(state.value);
+    }
+    if (clientScopeId.present) {
+      map['client_scope_id'] = Variable<String>(clientScopeId.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DownloadConversionsCompanion(')
+          ..write('globalKey: $globalKey, ')
+          ..write('quality: $quality, ')
+          ..write('state: $state, ')
+          ..write('clientScopeId: $clientScopeId, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $DownloadOwnersTable extends DownloadOwners
     with TableInfo<$DownloadOwnersTable, DownloadOwnerItem> {
   @override
@@ -3477,6 +3815,17 @@ class $SyncRulesTable extends SyncRules
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _downloadQualityMeta = const VerificationMeta(
+    'downloadQuality',
+  );
+  @override
+  late final GeneratedColumn<String> downloadQuality = GeneratedColumn<String>(
+    'download_quality',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _downloadFilterMeta = const VerificationMeta(
     'downloadFilter',
   );
@@ -3532,6 +3881,7 @@ class $SyncRulesTable extends SyncRules
     createdAt,
     lastExecutedAt,
     mediaIndex,
+    downloadQuality,
     downloadFilter,
     includeSpecials,
     downloadLinksInitialized,
@@ -3629,6 +3979,15 @@ class $SyncRulesTable extends SyncRules
         mediaIndex.isAcceptableOrUnknown(data['media_index']!, _mediaIndexMeta),
       );
     }
+    if (data.containsKey('download_quality')) {
+      context.handle(
+        _downloadQualityMeta,
+        downloadQuality.isAcceptableOrUnknown(
+          data['download_quality']!,
+          _downloadQualityMeta,
+        ),
+      );
+    }
     if (data.containsKey('download_filter')) {
       context.handle(
         _downloadFilterMeta,
@@ -3709,6 +4068,10 @@ class $SyncRulesTable extends SyncRules
         DriftSqlType.int,
         data['${effectivePrefix}media_index'],
       )!,
+      downloadQuality: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}download_quality'],
+      ),
       downloadFilter: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}download_filter'],
@@ -3742,6 +4105,10 @@ class SyncRuleItem extends DataClass implements Insertable<SyncRuleItem> {
   final int createdAt;
   final int? lastExecutedAt;
   final int mediaIndex;
+
+  /// `TranscodeQualityPreset` name for the rule's downloads; null keeps the
+  /// original file.
+  final String? downloadQuality;
   final String downloadFilter;
   final bool includeSpecials;
 
@@ -3761,6 +4128,7 @@ class SyncRuleItem extends DataClass implements Insertable<SyncRuleItem> {
     required this.createdAt,
     this.lastExecutedAt,
     required this.mediaIndex,
+    this.downloadQuality,
     required this.downloadFilter,
     required this.includeSpecials,
     required this.downloadLinksInitialized,
@@ -3781,6 +4149,9 @@ class SyncRuleItem extends DataClass implements Insertable<SyncRuleItem> {
       map['last_executed_at'] = Variable<int>(lastExecutedAt);
     }
     map['media_index'] = Variable<int>(mediaIndex);
+    if (!nullToAbsent || downloadQuality != null) {
+      map['download_quality'] = Variable<String>(downloadQuality);
+    }
     map['download_filter'] = Variable<String>(downloadFilter);
     map['include_specials'] = Variable<bool>(includeSpecials);
     map['download_links_initialized'] = Variable<bool>(
@@ -3804,6 +4175,9 @@ class SyncRuleItem extends DataClass implements Insertable<SyncRuleItem> {
           ? const Value.absent()
           : Value(lastExecutedAt),
       mediaIndex: Value(mediaIndex),
+      downloadQuality: downloadQuality == null && nullToAbsent
+          ? const Value.absent()
+          : Value(downloadQuality),
       downloadFilter: Value(downloadFilter),
       includeSpecials: Value(includeSpecials),
       downloadLinksInitialized: Value(downloadLinksInitialized),
@@ -3827,6 +4201,7 @@ class SyncRuleItem extends DataClass implements Insertable<SyncRuleItem> {
       createdAt: serializer.fromJson<int>(json['createdAt']),
       lastExecutedAt: serializer.fromJson<int?>(json['lastExecutedAt']),
       mediaIndex: serializer.fromJson<int>(json['mediaIndex']),
+      downloadQuality: serializer.fromJson<String?>(json['downloadQuality']),
       downloadFilter: serializer.fromJson<String>(json['downloadFilter']),
       includeSpecials: serializer.fromJson<bool>(json['includeSpecials']),
       downloadLinksInitialized: serializer.fromJson<bool>(
@@ -3849,6 +4224,7 @@ class SyncRuleItem extends DataClass implements Insertable<SyncRuleItem> {
       'createdAt': serializer.toJson<int>(createdAt),
       'lastExecutedAt': serializer.toJson<int?>(lastExecutedAt),
       'mediaIndex': serializer.toJson<int>(mediaIndex),
+      'downloadQuality': serializer.toJson<String?>(downloadQuality),
       'downloadFilter': serializer.toJson<String>(downloadFilter),
       'includeSpecials': serializer.toJson<bool>(includeSpecials),
       'downloadLinksInitialized': serializer.toJson<bool>(
@@ -3869,6 +4245,7 @@ class SyncRuleItem extends DataClass implements Insertable<SyncRuleItem> {
     int? createdAt,
     Value<int?> lastExecutedAt = const Value.absent(),
     int? mediaIndex,
+    Value<String?> downloadQuality = const Value.absent(),
     String? downloadFilter,
     bool? includeSpecials,
     bool? downloadLinksInitialized,
@@ -3886,6 +4263,9 @@ class SyncRuleItem extends DataClass implements Insertable<SyncRuleItem> {
         ? lastExecutedAt.value
         : this.lastExecutedAt,
     mediaIndex: mediaIndex ?? this.mediaIndex,
+    downloadQuality: downloadQuality.present
+        ? downloadQuality.value
+        : this.downloadQuality,
     downloadFilter: downloadFilter ?? this.downloadFilter,
     includeSpecials: includeSpecials ?? this.includeSpecials,
     downloadLinksInitialized:
@@ -3912,6 +4292,9 @@ class SyncRuleItem extends DataClass implements Insertable<SyncRuleItem> {
       mediaIndex: data.mediaIndex.present
           ? data.mediaIndex.value
           : this.mediaIndex,
+      downloadQuality: data.downloadQuality.present
+          ? data.downloadQuality.value
+          : this.downloadQuality,
       downloadFilter: data.downloadFilter.present
           ? data.downloadFilter.value
           : this.downloadFilter,
@@ -3938,6 +4321,7 @@ class SyncRuleItem extends DataClass implements Insertable<SyncRuleItem> {
           ..write('createdAt: $createdAt, ')
           ..write('lastExecutedAt: $lastExecutedAt, ')
           ..write('mediaIndex: $mediaIndex, ')
+          ..write('downloadQuality: $downloadQuality, ')
           ..write('downloadFilter: $downloadFilter, ')
           ..write('includeSpecials: $includeSpecials, ')
           ..write('downloadLinksInitialized: $downloadLinksInitialized')
@@ -3958,6 +4342,7 @@ class SyncRuleItem extends DataClass implements Insertable<SyncRuleItem> {
     createdAt,
     lastExecutedAt,
     mediaIndex,
+    downloadQuality,
     downloadFilter,
     includeSpecials,
     downloadLinksInitialized,
@@ -3977,6 +4362,7 @@ class SyncRuleItem extends DataClass implements Insertable<SyncRuleItem> {
           other.createdAt == this.createdAt &&
           other.lastExecutedAt == this.lastExecutedAt &&
           other.mediaIndex == this.mediaIndex &&
+          other.downloadQuality == this.downloadQuality &&
           other.downloadFilter == this.downloadFilter &&
           other.includeSpecials == this.includeSpecials &&
           other.downloadLinksInitialized == this.downloadLinksInitialized);
@@ -3994,6 +4380,7 @@ class SyncRulesCompanion extends UpdateCompanion<SyncRuleItem> {
   final Value<int> createdAt;
   final Value<int?> lastExecutedAt;
   final Value<int> mediaIndex;
+  final Value<String?> downloadQuality;
   final Value<String> downloadFilter;
   final Value<bool> includeSpecials;
   final Value<bool> downloadLinksInitialized;
@@ -4009,6 +4396,7 @@ class SyncRulesCompanion extends UpdateCompanion<SyncRuleItem> {
     this.createdAt = const Value.absent(),
     this.lastExecutedAt = const Value.absent(),
     this.mediaIndex = const Value.absent(),
+    this.downloadQuality = const Value.absent(),
     this.downloadFilter = const Value.absent(),
     this.includeSpecials = const Value.absent(),
     this.downloadLinksInitialized = const Value.absent(),
@@ -4025,6 +4413,7 @@ class SyncRulesCompanion extends UpdateCompanion<SyncRuleItem> {
     required int createdAt,
     this.lastExecutedAt = const Value.absent(),
     this.mediaIndex = const Value.absent(),
+    this.downloadQuality = const Value.absent(),
     this.downloadFilter = const Value.absent(),
     this.includeSpecials = const Value.absent(),
     this.downloadLinksInitialized = const Value.absent(),
@@ -4046,6 +4435,7 @@ class SyncRulesCompanion extends UpdateCompanion<SyncRuleItem> {
     Expression<int>? createdAt,
     Expression<int>? lastExecutedAt,
     Expression<int>? mediaIndex,
+    Expression<String>? downloadQuality,
     Expression<String>? downloadFilter,
     Expression<bool>? includeSpecials,
     Expression<bool>? downloadLinksInitialized,
@@ -4062,6 +4452,7 @@ class SyncRulesCompanion extends UpdateCompanion<SyncRuleItem> {
       if (createdAt != null) 'created_at': createdAt,
       if (lastExecutedAt != null) 'last_executed_at': lastExecutedAt,
       if (mediaIndex != null) 'media_index': mediaIndex,
+      if (downloadQuality != null) 'download_quality': downloadQuality,
       if (downloadFilter != null) 'download_filter': downloadFilter,
       if (includeSpecials != null) 'include_specials': includeSpecials,
       if (downloadLinksInitialized != null)
@@ -4081,6 +4472,7 @@ class SyncRulesCompanion extends UpdateCompanion<SyncRuleItem> {
     Value<int>? createdAt,
     Value<int?>? lastExecutedAt,
     Value<int>? mediaIndex,
+    Value<String?>? downloadQuality,
     Value<String>? downloadFilter,
     Value<bool>? includeSpecials,
     Value<bool>? downloadLinksInitialized,
@@ -4097,6 +4489,7 @@ class SyncRulesCompanion extends UpdateCompanion<SyncRuleItem> {
       createdAt: createdAt ?? this.createdAt,
       lastExecutedAt: lastExecutedAt ?? this.lastExecutedAt,
       mediaIndex: mediaIndex ?? this.mediaIndex,
+      downloadQuality: downloadQuality ?? this.downloadQuality,
       downloadFilter: downloadFilter ?? this.downloadFilter,
       includeSpecials: includeSpecials ?? this.includeSpecials,
       downloadLinksInitialized:
@@ -4140,6 +4533,9 @@ class SyncRulesCompanion extends UpdateCompanion<SyncRuleItem> {
     if (mediaIndex.present) {
       map['media_index'] = Variable<int>(mediaIndex.value);
     }
+    if (downloadQuality.present) {
+      map['download_quality'] = Variable<String>(downloadQuality.value);
+    }
     if (downloadFilter.present) {
       map['download_filter'] = Variable<String>(downloadFilter.value);
     }
@@ -4168,6 +4564,7 @@ class SyncRulesCompanion extends UpdateCompanion<SyncRuleItem> {
           ..write('createdAt: $createdAt, ')
           ..write('lastExecutedAt: $lastExecutedAt, ')
           ..write('mediaIndex: $mediaIndex, ')
+          ..write('downloadQuality: $downloadQuality, ')
           ..write('downloadFilter: $downloadFilter, ')
           ..write('includeSpecials: $includeSpecials, ')
           ..write('downloadLinksInitialized: $downloadLinksInitialized')
@@ -7247,6 +7644,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $DownloadedMediaTable downloadedMedia = $DownloadedMediaTable(
     this,
   );
+  late final $DownloadConversionsTable downloadConversions =
+      $DownloadConversionsTable(this);
   late final $DownloadOwnersTable downloadOwners = $DownloadOwnersTable(this);
   late final $DownloadQueueTable downloadQueue = $DownloadQueueTable(this);
   late final $ApiCacheTable apiCache = $ApiCacheTable(this);
@@ -7326,6 +7725,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   @override
   List<DatabaseSchemaEntity> get allSchemaEntities => [
     downloadedMedia,
+    downloadConversions,
     downloadOwners,
     downloadQueue,
     apiCache,
@@ -7963,6 +8363,205 @@ typedef $$DownloadedMediaTableProcessedTableManager =
         >,
       ),
       DownloadedMediaItem,
+      PrefetchHooks Function()
+    >;
+typedef $$DownloadConversionsTableCreateCompanionBuilder =
+    DownloadConversionsCompanion Function({
+      required String globalKey,
+      required String quality,
+      Value<String?> state,
+      Value<String?> clientScopeId,
+      Value<int> rowid,
+    });
+typedef $$DownloadConversionsTableUpdateCompanionBuilder =
+    DownloadConversionsCompanion Function({
+      Value<String> globalKey,
+      Value<String> quality,
+      Value<String?> state,
+      Value<String?> clientScopeId,
+      Value<int> rowid,
+    });
+
+class $$DownloadConversionsTableFilterComposer
+    extends Composer<_$AppDatabase, $DownloadConversionsTable> {
+  $$DownloadConversionsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get globalKey => $composableBuilder(
+    column: $table.globalKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get quality => $composableBuilder(
+    column: $table.quality,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get state => $composableBuilder(
+    column: $table.state,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get clientScopeId => $composableBuilder(
+    column: $table.clientScopeId,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$DownloadConversionsTableOrderingComposer
+    extends Composer<_$AppDatabase, $DownloadConversionsTable> {
+  $$DownloadConversionsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get globalKey => $composableBuilder(
+    column: $table.globalKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get quality => $composableBuilder(
+    column: $table.quality,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get state => $composableBuilder(
+    column: $table.state,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get clientScopeId => $composableBuilder(
+    column: $table.clientScopeId,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$DownloadConversionsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $DownloadConversionsTable> {
+  $$DownloadConversionsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get globalKey =>
+      $composableBuilder(column: $table.globalKey, builder: (column) => column);
+
+  GeneratedColumn<String> get quality =>
+      $composableBuilder(column: $table.quality, builder: (column) => column);
+
+  GeneratedColumn<String> get state =>
+      $composableBuilder(column: $table.state, builder: (column) => column);
+
+  GeneratedColumn<String> get clientScopeId => $composableBuilder(
+    column: $table.clientScopeId,
+    builder: (column) => column,
+  );
+}
+
+class $$DownloadConversionsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $DownloadConversionsTable,
+          DownloadConversionRow,
+          $$DownloadConversionsTableFilterComposer,
+          $$DownloadConversionsTableOrderingComposer,
+          $$DownloadConversionsTableAnnotationComposer,
+          $$DownloadConversionsTableCreateCompanionBuilder,
+          $$DownloadConversionsTableUpdateCompanionBuilder,
+          (
+            DownloadConversionRow,
+            BaseReferences<
+              _$AppDatabase,
+              $DownloadConversionsTable,
+              DownloadConversionRow
+            >,
+          ),
+          DownloadConversionRow,
+          PrefetchHooks Function()
+        > {
+  $$DownloadConversionsTableTableManager(
+    _$AppDatabase db,
+    $DownloadConversionsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$DownloadConversionsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$DownloadConversionsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$DownloadConversionsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> globalKey = const Value.absent(),
+                Value<String> quality = const Value.absent(),
+                Value<String?> state = const Value.absent(),
+                Value<String?> clientScopeId = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => DownloadConversionsCompanion(
+                globalKey: globalKey,
+                quality: quality,
+                state: state,
+                clientScopeId: clientScopeId,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String globalKey,
+                required String quality,
+                Value<String?> state = const Value.absent(),
+                Value<String?> clientScopeId = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => DownloadConversionsCompanion.insert(
+                globalKey: globalKey,
+                quality: quality,
+                state: state,
+                clientScopeId: clientScopeId,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$DownloadConversionsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $DownloadConversionsTable,
+      DownloadConversionRow,
+      $$DownloadConversionsTableFilterComposer,
+      $$DownloadConversionsTableOrderingComposer,
+      $$DownloadConversionsTableAnnotationComposer,
+      $$DownloadConversionsTableCreateCompanionBuilder,
+      $$DownloadConversionsTableUpdateCompanionBuilder,
+      (
+        DownloadConversionRow,
+        BaseReferences<
+          _$AppDatabase,
+          $DownloadConversionsTable,
+          DownloadConversionRow
+        >,
+      ),
+      DownloadConversionRow,
       PrefetchHooks Function()
     >;
 typedef $$DownloadOwnersTableCreateCompanionBuilder =
@@ -8981,6 +9580,7 @@ typedef $$SyncRulesTableCreateCompanionBuilder =
       required int createdAt,
       Value<int?> lastExecutedAt,
       Value<int> mediaIndex,
+      Value<String?> downloadQuality,
       Value<String> downloadFilter,
       Value<bool> includeSpecials,
       Value<bool> downloadLinksInitialized,
@@ -8998,6 +9598,7 @@ typedef $$SyncRulesTableUpdateCompanionBuilder =
       Value<int> createdAt,
       Value<int?> lastExecutedAt,
       Value<int> mediaIndex,
+      Value<String?> downloadQuality,
       Value<String> downloadFilter,
       Value<bool> includeSpecials,
       Value<bool> downloadLinksInitialized,
@@ -9093,6 +9694,11 @@ class $$SyncRulesTableFilterComposer
 
   ColumnFilters<int> get mediaIndex => $composableBuilder(
     column: $table.mediaIndex,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get downloadQuality => $composableBuilder(
+    column: $table.downloadQuality,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -9201,6 +9807,11 @@ class $$SyncRulesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get downloadQuality => $composableBuilder(
+    column: $table.downloadQuality,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get downloadFilter => $composableBuilder(
     column: $table.downloadFilter,
     builder: (column) => ColumnOrderings(column),
@@ -9264,6 +9875,11 @@ class $$SyncRulesTableAnnotationComposer
 
   GeneratedColumn<int> get mediaIndex => $composableBuilder(
     column: $table.mediaIndex,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get downloadQuality => $composableBuilder(
+    column: $table.downloadQuality,
     builder: (column) => column,
   );
 
@@ -9348,6 +9964,7 @@ class $$SyncRulesTableTableManager
                 Value<int> createdAt = const Value.absent(),
                 Value<int?> lastExecutedAt = const Value.absent(),
                 Value<int> mediaIndex = const Value.absent(),
+                Value<String?> downloadQuality = const Value.absent(),
                 Value<String> downloadFilter = const Value.absent(),
                 Value<bool> includeSpecials = const Value.absent(),
                 Value<bool> downloadLinksInitialized = const Value.absent(),
@@ -9363,6 +9980,7 @@ class $$SyncRulesTableTableManager
                 createdAt: createdAt,
                 lastExecutedAt: lastExecutedAt,
                 mediaIndex: mediaIndex,
+                downloadQuality: downloadQuality,
                 downloadFilter: downloadFilter,
                 includeSpecials: includeSpecials,
                 downloadLinksInitialized: downloadLinksInitialized,
@@ -9380,6 +9998,7 @@ class $$SyncRulesTableTableManager
                 required int createdAt,
                 Value<int?> lastExecutedAt = const Value.absent(),
                 Value<int> mediaIndex = const Value.absent(),
+                Value<String?> downloadQuality = const Value.absent(),
                 Value<String> downloadFilter = const Value.absent(),
                 Value<bool> includeSpecials = const Value.absent(),
                 Value<bool> downloadLinksInitialized = const Value.absent(),
@@ -9395,6 +10014,7 @@ class $$SyncRulesTableTableManager
                 createdAt: createdAt,
                 lastExecutedAt: lastExecutedAt,
                 mediaIndex: mediaIndex,
+                downloadQuality: downloadQuality,
                 downloadFilter: downloadFilter,
                 includeSpecials: includeSpecials,
                 downloadLinksInitialized: downloadLinksInitialized,
@@ -11441,6 +12061,8 @@ class $AppDatabaseManager {
   $AppDatabaseManager(this._db);
   $$DownloadedMediaTableTableManager get downloadedMedia =>
       $$DownloadedMediaTableTableManager(_db, _db.downloadedMedia);
+  $$DownloadConversionsTableTableManager get downloadConversions =>
+      $$DownloadConversionsTableTableManager(_db, _db.downloadConversions);
   $$DownloadOwnersTableTableManager get downloadOwners =>
       $$DownloadOwnersTableTableManager(_db, _db.downloadOwners);
   $$DownloadQueueTableTableManager get downloadQueue =>

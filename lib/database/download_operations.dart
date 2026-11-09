@@ -650,6 +650,7 @@ extension DownloadDatabaseOperations on AppDatabase {
       await (delete(downloadOwners)..where((t) => t.globalKey.equals(globalKey))).go();
       await (delete(downloadedMedia)..where((t) => t.globalKey.equals(globalKey))).go();
       await (delete(downloadQueue)..where((t) => t.mediaGlobalKey.equals(globalKey))).go();
+      await (delete(downloadConversions)..where((t) => t.globalKey.equals(globalKey))).go();
     });
     return safRootUri;
   }

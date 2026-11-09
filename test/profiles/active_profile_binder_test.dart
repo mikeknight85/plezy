@@ -22,6 +22,7 @@ import 'package:plezy/providers/multi_server_provider.dart';
 import 'package:plezy/services/multi_server_manager.dart';
 import 'package:plezy/services/plex_api_cache.dart';
 import 'package:plezy/services/plex_auth_service.dart';
+import 'package:plezy/services/plex_root_capabilities.dart';
 import 'package:plezy/services/plex_client.dart';
 import 'package:plezy/services/storage_service.dart';
 import 'package:plezy/utils/device_identity.dart';
@@ -1792,6 +1793,7 @@ class _GatedPlexServer extends PlexServer {
     String? preferredUri,
     String? clientIdentifier,
     void Function(bool)? onTranscoderCapability,
+    void Function(PlexRootCapabilities)? onRootCapabilities,
   }) {
     if (!_manager.reachable) return const Stream.empty();
     final liveAddress = _manager.liveAddress;

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'storage_service.dart';
 import 'plex_client.dart';
+import 'plex_root_capabilities.dart';
 import '../exceptions/media_server_exceptions.dart';
 import '../i18n/strings.g.dart';
 import '../media/account_preferences.dart';
@@ -486,6 +487,7 @@ class PlexServer {
     String? preferredUri,
     String? clientIdentifier,
     void Function(bool)? onTranscoderCapability,
+    void Function(PlexRootCapabilities)? onRootCapabilities,
   }) async* {
     if (connections.isEmpty) {
       appLogger.w('No connections available for server discovery');
@@ -548,6 +550,8 @@ class PlexServer {
       selectBestCandidate: _selectBestCandidateWithLatency,
       onFirstSuccess: (_, result) {
         if (result.transcoderVideo != null) onTranscoderCapability?.call(result.transcoderVideo!);
+        final rootCapabilities = result.rootCapabilities;
+        if (rootCapabilities != null) onRootCapabilities?.call(rootCapabilities);
       },
     )) {
       if (selection.phase == EndpointRacePhase.first) {

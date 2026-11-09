@@ -17,6 +17,7 @@ import 'package:plezy/database/app_database.dart';
 import 'package:plezy/models/plex/plex_config.dart';
 import 'package:plezy/services/plex_api_cache.dart';
 import 'package:plezy/services/plex_auth_service.dart';
+import 'package:plezy/services/plex_root_capabilities.dart';
 import 'package:plezy/services/plex_client.dart';
 import 'package:plezy/services/jellyfin_client.dart';
 import 'package:plezy/services/multi_server_manager.dart';
@@ -2209,6 +2210,7 @@ class _ControlledPlexServer extends PlexServer {
     String? preferredUri,
     String? clientIdentifier,
     void Function(bool)? onTranscoderCapability,
+    void Function(PlexRootCapabilities)? onRootCapabilities,
   }) {
     onTranscoderCapability?.call(true);
     final index = discoveryCalls++;

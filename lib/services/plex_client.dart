@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 
 import '../media/chapter_marker_classifier.dart';
 import '../media/artist_discography.dart';
+import '../media/download_conversion.dart';
 import '../media/download_resolution.dart';
 import '../media/episode_collection.dart';
 import '../media/library_filter_result.dart';
@@ -78,7 +79,10 @@ import '../mpv/mpv.dart';
 import 'api_cache.dart';
 import 'plex_api_cache.dart';
 import 'plex_constants.dart';
+import 'plex_download_conversion.dart';
+import 'plex_download_queue_service.dart';
 import 'plex_lyrics_parser.dart';
+import 'plex_root_capabilities.dart';
 import 'plex_mappers.dart';
 import 'plex_playback_mapper.dart';
 import 'playback_initialization_types.dart';
@@ -299,20 +303,12 @@ class ConnectionTestResult {
   /// `transcoderVideo` from the `/` MediaContainer, captured on successful
   /// probes so the connection race doubles as a capability probe. `null`
   /// when the probe didn't succeed or the field was absent.
-  final bool? transcoderVideo;
+  bool? get transcoderVideo => rootCapabilities?.transcoderVideo;
 
-  ConnectionTestResult({required this.success, required this.latencyMs, this.error, this.transcoderVideo});
-}
+  /// Everything else the same `/` response reports, such as download support.
+  final PlexRootCapabilities? rootCapabilities;
 
-bool? _parsePlexTranscoderVideoCapability(Object? value) {
-  return switch (value) {
-    final bool b => b,
-    final int n when n == 1 => true,
-    final int n when n == 0 => false,
-    final String s when s.trim().toLowerCase() == 'true' || s.trim() == '1' => true,
-    final String s when s.trim().toLowerCase() == 'false' || s.trim() == '0' => false,
-    _ => null,
-  };
+  ConnectionTestResult({required this.success, required this.latencyMs, this.error, this.rootCapabilities});
 }
 
 bool _shouldFallbackPlexItemLookup(Object error) => error is MediaServerHttpException && error.isTransient;
@@ -402,7 +398,7 @@ class PlexClient
         _PlexCollectionMethods,
         _PlexPlayQueueMethods,
         _PlexMetadataEditMethods
-    implements MediaServerClient, ScopedMediaServerClient, GracefullyCloseable {
+    implements MediaServerClient, ScopedMediaServerClient, GracefullyCloseable, DownloadConversionSource {
   @override
   PlexConfig config;
 
@@ -470,6 +466,10 @@ class PlexClient
 
   /// Cached result of [serverSupportsVideoTranscoding]. `null` = not yet fetched.
   bool? _serverTranscoderCached;
+
+  /// The root (`/`) capabilities last reported for this client's token, from
+  /// the connection race or the transcoder warm-up. `null` until one lands.
+  PlexRootCapabilities? _rootCapabilities;
 
   /// In-flight probe for [serverSupportsVideoTranscoding], used to dedupe
   /// concurrent callers (e.g. the post-connect warm-up racing the first
@@ -826,18 +826,15 @@ class PlexClient
       stopwatch.stop();
       final success = response.statusCode == 200;
 
-      bool? transcoderVideo;
-      if (success && response.data is Map && response.data['MediaContainer'] is Map) {
-        transcoderVideo = _parsePlexTranscoderVideoCapability(
-          (response.data['MediaContainer'] as Map)['transcoderVideo'],
-        );
-      }
+      final rootCapabilities = success && response.data is Map
+          ? PlexRootCapabilities.fromMediaContainer(response.data['MediaContainer'])
+          : null;
 
       return ConnectionTestResult(
         success: success,
         latencyMs: stopwatch.elapsedMilliseconds,
         error: success ? null : 'HTTP ${response.statusCode}',
-        transcoderVideo: transcoderVideo,
+        rootCapabilities: rootCapabilities,
       );
     } on MediaServerHttpException catch (e) {
       stopwatch.stop();
@@ -2826,9 +2823,9 @@ class PlexClient
       // server answers in well under a second. Inheriting the default 120 s
       // receive timeout would keep a hung server from ever resolving.
       final response = await _http.get('/', timeout: const Duration(seconds: 5));
-      final container = _getMediaContainer(response);
-      final value = container?['transcoderVideo'];
-      final supported = _parsePlexTranscoderVideoCapability(value) ?? true;
+      final capabilities = PlexRootCapabilities.fromMediaContainer(_getMediaContainer(response));
+      if (capabilities != null) _rootCapabilities = capabilities;
+      final supported = capabilities?.transcoderVideo ?? true;
       _serverTranscoderCached = supported;
       return supported;
     } catch (e) {
@@ -2836,6 +2833,46 @@ class PlexClient
       _serverTranscoderCached = true;
       return true;
     }
+  }
+
+  /// Adopt the root capabilities the connection race read from `/`, so the
+  /// client knows them without a request of its own. A later warm-up result
+  /// for the same token replaces them.
+  void seedRootCapabilities(PlexRootCapabilities? capabilities) {
+    if (capabilities != null) _rootCapabilities ??= capabilities;
+  }
+
+  /// Whether this server can prepare converted downloads for the current
+  /// token. Synchronous and request-free: it reads what `/` last reported, so
+  /// it is false until that lands and for every server or user without
+  /// download permission.
+  @override
+  bool get offersDownloadConversion =>
+      !_downloadConversionRejected && (_rootCapabilities?.supportsDownloadQueue ?? false);
+
+  /// Captures this profile's credentials, so a conversion stays with the
+  /// account that started it even if the active Plex Home profile changes.
+  @override
+  DownloadConversion get downloadConversion => PlexDownloadConversion(
+    PlexDownloadQueueService(_http, config: config),
+    fetchItem: fetchEditableItem,
+    onRejected: () => _downloadConversionRejected = true,
+  );
+
+  /// Set when the server refused the download queue despite advertising it,
+  /// so the quality choice disappears for the rest of this client's life.
+  bool _downloadConversionRejected = false;
+
+  /// `allowSync` is per user, so a profile switch invalidates it. Only a
+  /// client that offered converted downloads re-reads `/`; every other client
+  /// keeps today's behaviour and makes no extra request.
+  void _resetRootCapabilitiesForNewToken() {
+    final hadDownloadConversion = offersDownloadConversion;
+    _rootCapabilities = null;
+    _downloadConversionRejected = false;
+    if (!hadDownloadConversion) return;
+    _serverTranscoderPending = null;
+    unawaited(_fetchTranscoderCapability());
   }
 
   /// Build an HLS VOD transcode stream URL (decision + start path).
@@ -3390,7 +3427,10 @@ class PlexClient
       _http.defaultHeaders = Map.of(config.headers);
       LogRedactionManager.registerToken(newToken);
       _commitMediaProviders(providers);
-      if (authenticationChanged) _authenticationSessionId = Object();
+      if (authenticationChanged) {
+        _authenticationSessionId = Object();
+        _resetRootCapabilitiesForNewToken();
+      }
       return true;
     } catch (_) {
       if (generation != _profileUpdateGeneration) return false;

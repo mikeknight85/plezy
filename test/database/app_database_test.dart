@@ -7,11 +7,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/io_client.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plezy/database/app_database.dart';
+import 'package:plezy/database/download_conversion_operations.dart';
 import 'package:plezy/database/download_collection_operations.dart';
 import 'package:plezy/database/download_operations.dart';
 import 'package:plezy/database/tvos_database_recovery_store.dart';
 import 'package:plezy/media/ids.dart';
 import 'package:plezy/models/download_models.dart';
+import 'package:plezy/models/transcode_quality_preset.dart';
 import 'package:plezy/services/base_shared_preferences_service.dart';
 import 'package:plezy/services/credential_vault.dart';
 import 'package:plezy/services/download_manager_service.dart';
@@ -1188,6 +1190,48 @@ class _AppDatabaseTestSuite {
           await reopened.deleteDownloadCollectionsForProfile('p2');
           expect(await reopened.getDownloadCollections('p2'), isEmpty);
           expect(await reopened.getDownloadCollectionSync(profileId: 'p2', serverId: 'srv'), isNull);
+        } finally {
+          await reopened?.close();
+          await seeded?.close();
+          await tempDir.delete(recursive: true);
+          db = AppDatabase.forTesting(NativeDatabase.memory());
+        }
+      });
+      test('v26 migration adds download conversions and sync rule download quality', () async {
+        await db.close();
+        final tempDir = await Directory.systemTemp.createTemp('plezy_db_v26_migration_test_');
+        final file = File('${tempDir.path}/plezy_downloads.db');
+        AppDatabase? seeded;
+        AppDatabase? reopened;
+
+        try {
+          // Build a v25-shaped database: current schema minus what this
+          // migration adds.
+          seeded = AppDatabase.forTesting(NativeDatabase(file));
+          await seeded.select(seeded.connections).get();
+          await seeded.customStatement('DROP TABLE download_conversions');
+          await seeded.customStatement('ALTER TABLE sync_rules DROP COLUMN download_quality');
+          await seeded.customStatement('PRAGMA user_version = 25');
+          await seeded.close();
+          seeded = null;
+
+          reopened = AppDatabase.forTesting(NativeDatabase(file));
+          await reopened.requestDownloadConversion(
+            'srv:1',
+            quality: TranscodeQualityPreset.p720_4mbps,
+            clientScopeId: 'scope',
+          );
+          expect(
+            await reopened.updateDownloadConversionState('srv:1', '{"queueId":"5"}', quality: 'p720_4mbps'),
+            isTrue,
+          );
+          final row = await reopened.getDownloadConversion('srv:1');
+          expect(row?.quality, 'p720_4mbps');
+          expect(row?.state, '{"queueId":"5"}');
+          expect(row?.clientScopeId, 'scope');
+
+          final columns = await reopened.customSelect('PRAGMA table_info(sync_rules)').get();
+          expect(columns.map((c) => c.read<String>('name')), contains('download_quality'));
         } finally {
           await reopened?.close();
           await seeded?.close();

@@ -15,6 +15,7 @@ import 'connectivity_probe.dart';
 import 'jellyfin_client.dart';
 import 'jellyfin_endpoint_discovery.dart';
 import 'plex_client.dart';
+import 'plex_root_capabilities.dart';
 import '../models/plex/plex_config.dart';
 import '../utils/app_logger.dart';
 import '../utils/media_server_timeouts.dart';
@@ -478,6 +479,7 @@ class MultiServerManager {
     // `transcoderVideo` from that response so PlexClient.create can skip the
     // redundant warm-up probe.
     bool? observedTranscoderVideo;
+    PlexRootCapabilities? observedRootCapabilities;
 
     // Find best working connection, passing cached endpoint for fast-path
     final streamIterator = StreamIterator(
@@ -485,6 +487,7 @@ class MultiServerManager {
         preferredUri: cachedEndpoint,
         clientIdentifier: clientIdentifier,
         onTranscoderCapability: (b) => observedTranscoderVideo = b,
+        onRootCapabilities: (capabilities) => observedRootCapabilities = capabilities,
       ),
     );
 
@@ -521,6 +524,7 @@ class MultiServerManager {
     );
     final account = _plexAccountByServer[serverId];
     client
+      ..seedRootCapabilities(observedRootCapabilities)
       ..plexAccountId = account?.id
       ..plexAccountToken = account?.token;
 

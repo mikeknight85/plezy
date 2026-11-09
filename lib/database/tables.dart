@@ -31,6 +31,30 @@ class DownloadQueue extends Table {
   BoolColumn get downloadArtwork => boolean().withDefault(const Constant(true))();
 }
 
+/// A server-side conversion for a download that asked for a smaller copy.
+///
+/// Only such downloads have a row: every other download, and every backend
+/// without conversions, never touches this table.
+@DataClassName('DownloadConversionRow')
+class DownloadConversions extends Table {
+  /// The [DownloadedMedia.globalKey] this conversion belongs to.
+  TextColumn get globalKey => text()();
+
+  /// `TranscodeQualityPreset` name; never `original`.
+  TextColumn get quality => text()();
+
+  /// Opaque backend state, such as Plex's queue and item IDs. Null until the
+  /// server has been asked to prepare the copy.
+  TextColumn get state => text().nullable()();
+
+  /// The client scope that started the job: a server-side conversion belongs
+  /// to the account that created it, so a different scope starts over.
+  TextColumn get clientScopeId => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {globalKey};
+}
+
 @DataClassName('DownloadedMediaItem')
 @TableIndex(name: 'idx_downloaded_media_status', columns: {#status})
 @TableIndex(name: 'idx_downloaded_media_server', columns: {#serverId})
@@ -119,6 +143,10 @@ class SyncRules extends Table {
   IntColumn get createdAt => integer()();
   IntColumn get lastExecutedAt => integer().nullable()();
   IntColumn get mediaIndex => integer().withDefault(const Constant(0))();
+
+  /// `TranscodeQualityPreset` name for the rule's downloads; null keeps the
+  /// original file.
+  TextColumn get downloadQuality => text().nullable()();
   TextColumn get downloadFilter => text().withDefault(const Constant('unwatched'))();
   BoolColumn get includeSpecials => boolean().withDefault(const Constant(true))();
 

@@ -49,6 +49,7 @@ final class AppDatabaseBootstrap {
 @DriftDatabase(
   tables: [
     DownloadedMedia,
+    DownloadConversions,
     DownloadOwners,
     DownloadQueue,
     ApiCache,
@@ -368,7 +369,7 @@ class AppDatabase extends _$AppDatabase {
   static const FormatException _invalidRecoveryImage = FormatException('Invalid tvOS database recovery image');
 
   @override
-  int get schemaVersion => 25;
+  int get schemaVersion => 26;
 
   @override
   MigrationStrategy get migration {
@@ -764,6 +765,14 @@ class AppDatabase extends _$AppDatabase {
           appLogger.i('Adding download collection membership tables (v25 migration)');
           await _ignoreAlreadyExists('DownloadCollections table', () => m.createTable(downloadCollections));
           await _ignoreAlreadyExists('DownloadCollectionSyncs table', () => m.createTable(downloadCollectionSyncs));
+        }
+        if (from < 26) {
+          appLogger.i('Adding download conversions and sync rule download quality (v26 migration)');
+          await _ignoreAlreadyExists('DownloadConversions table', () => m.createTable(downloadConversions));
+          await _ignoreAlreadyExists(
+            'SyncRules.downloadQuality column',
+            () => m.addColumn(syncRules, syncRules.downloadQuality),
+          );
         }
       },
     );
